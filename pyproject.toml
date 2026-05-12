@@ -1,0 +1,14 @@
+[project]
+name = "smart-borehole-monitor"
+version = "0.1.0"
+description = "An IoT-based real-time groundwater level monitoring and machine learning-driven pump scheduling system for sustainable borehole management"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.18.4",
+    "asyncpg>=0.31.0",
+    "fastapi[standard]>=0.136.1",
+    "pydantic-settings>=2.14.1",
+    "sqlalchemy[asyncio]>=2.0.49",
+    "sqlmodel>=0.0.38",
+]
