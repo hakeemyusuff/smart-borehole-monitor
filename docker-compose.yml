@@ -1,0 +1,11 @@
+services:
+  database:
+    image: postgres:latest
+    ports:
+      - 5432:5432
+    environment:
+      - DB_PASSWORD:AGRIC_ENV
+      - POSTGRES_USER:AGRIC_ENV
+      - POSTGRES_DB:AEE_DB
+    volumes:
+      - pgdata
