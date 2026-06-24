@@ -1,11 +1,17 @@
 services:
   database:
-    image: postgres:latest
+    image: postgres:16
+    container_name: ${DB_NAME}
+    # restart: always
+
     ports:
       - 5432:5432
     environment:
-      - DB_PASSWORD:AGRIC_ENV
-      - POSTGRES_USER:AGRIC_ENV
-      - POSTGRES_DB:AEE_DB
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
     volumes:
-      - pgdata
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

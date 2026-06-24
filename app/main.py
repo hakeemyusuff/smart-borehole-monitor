@@ -1,6 +1,7 @@
-def main():
-    print("Hello from smart-borehole-monitor!")
+from fastapi import FastAPI
 
+app = FastAPI()
 
-if __name__ == "__main__":
-    main()
+@app.get("/")
+def root():
+    return {"Hello": "World"}
