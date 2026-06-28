@@ -31,8 +31,21 @@ class ReadingMixin(SQLModel):
     id: Optional[int] = Field(default=None, primary_key=True)
     borehole_id: Optional[int] = Field(default=None, foreign_key="borehole.id")
     sensor_id: Optional[int] = Field(default=None, foreign_key="sensor.id")
-    raw_reaing: float
+    raw_reading: float
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column_kwargs={"server_default": "CURRENT_TIMESTAMP"},
     )
+
+
+class WaterLevelReading(ReadingMixin, table=True):
+    __tablename__ = "water_level_reading"  # type: ignore
+
+    calculated_water_depth: float
+
+
+class FlowReading(ReadingMixin, table=True):
+    __tablename__ = "flow_reading"  # type: ignore
+
+    calculated_flow_rate: float
+    cummulative_volume: float
