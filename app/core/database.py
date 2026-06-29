@@ -1,4 +1,5 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.config import settings
 from app.auth.models import User
 from app.borehole.models import Borehole
