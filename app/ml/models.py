@@ -1,6 +1,7 @@
 from sqlmodel import SQLModel, Field
 from typing import Optional
 from datetime import datetime, timezone
+from sqlalchemy import text
 
 
 class Prediction(SQLModel, table=True):
@@ -13,5 +14,5 @@ class Prediction(SQLModel, table=True):
     confidence_score: float
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
-        sa_column_kwargs={"server_default": "CURRENT_TIMESTAMP"},
+        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP")},
     )

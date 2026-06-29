@@ -2,6 +2,7 @@ from sqlmodel import SQLModel, Field
 from typing import Optional
 from datetime import datetime, timezone
 from enum import Enum
+from sqlalchemy import text
 
 
 class PumpStatus(str, Enum):
@@ -19,6 +20,7 @@ class PumpTrigger(str, Enum):
     MANUAL_OVERRIDE = "manual_override"
     CRITICAL_SAFETY = "critical_safety"
 
+
 class DaysOfTheWeek(str, Enum):
     MONDAY = "monday"
     TUESDAY = "tuesday"
@@ -27,12 +29,14 @@ class DaysOfTheWeek(str, Enum):
     FRIDAY = "friday"
     SATURDAY = "saturday"
     SUNDAY = "sunday"
-    
+
+
 class ScheduleStatus(str, Enum):
     UPCOMING = "upcoming"
     CANCELLED = "cancelled"
-    COMPLETED = "completed"    
-    
+    COMPLETED = "completed"
+
+
 class Pump(SQLModel, table=True):
     __tablename__ = "pump"  # type: ignore
 
@@ -53,7 +57,7 @@ class PumpHistory(SQLModel, table=True):
     triggered_by: PumpTrigger
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
-        sa_column_kwargs={"server_default": "CURRENT_TIMESTAMP"},
+        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP")},
     )
 
 

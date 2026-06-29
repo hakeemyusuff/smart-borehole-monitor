@@ -1,12 +1,12 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from app.core.config import settings
-from auth.models import User
-from borehole.models import Borehole
-from location.models import Location
-from ml.models import Prediction
-from pump.models import Pump, PumpHistory,Schedule
-from sensor.models import Sensor, WaterLevelReading, FlowReading
-from weather.models import Weather
+from app.auth.models import User
+from app.borehole.models import Borehole
+from app.location.models import Location
+from app.ml.models import Prediction
+from app.pump.models import Pump, PumpHistory,Schedule
+from app.sensor.models import Sensor, WaterLevelReading, FlowReading
+from app.weather.models import Weather
 
 
 #This create the engine for database connection

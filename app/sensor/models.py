@@ -2,7 +2,7 @@ from sqlmodel import SQLModel, Field
 from typing import Optional
 from datetime import datetime, timezone
 from enum import Enum
-
+from sqlalchemy import text
 
 class SensorStatus(str, Enum):
     ACTIVE = "active"
@@ -34,7 +34,7 @@ class ReadingMixin(SQLModel):
     raw_reading: float
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
-        sa_column_kwargs={"server_default": "CURRENT_TIMESTAMP"},
+        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP")},
     )
 
 
