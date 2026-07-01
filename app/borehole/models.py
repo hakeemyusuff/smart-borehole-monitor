@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 from app.core.schemas import timestamp
 
+
 class Borehole(SQLModel, table=True):
     __tablename__ = "borehole"  # type: ignore
 
@@ -16,4 +17,4 @@ class Borehole(SQLModel, table=True):
     soil_characteristic: str
     water_body_proximity: float
     topography: str
-    created_at: datetime = timestamp
+    created_at: datetime = timestamp_field()

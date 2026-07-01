@@ -13,4 +13,4 @@ class Weather(SQLModel, table=True):
     temperature: float
     humidity: float
     precipitation: float
-    created_at: datetime = timestamp
+    created_at: datetime = timestamp_field()

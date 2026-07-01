@@ -56,7 +56,7 @@ class PumpHistory(SQLModel, table=True):
     pump_id: Optional[int] = Field(default=None, foreign_key="pump.id")
     action: PumpAction
     triggered_by: PumpTrigger
-    created_at: datetime = timestamp
+    created_at: datetime = timestamp_field()
 
 
 class Schedule(SQLModel, table=True):

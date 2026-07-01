@@ -5,6 +5,7 @@ from enum import Enum
 from sqlalchemy import text
 from app.core.schemas import timestamp
 
+
 class SensorStatus(str, Enum):
     ACTIVE = "active"
     INACTIVE = "inactive"
@@ -33,7 +34,7 @@ class ReadingMixin(SQLModel):
     borehole_id: Optional[int] = Field(default=None, foreign_key="borehole.id")
     sensor_id: Optional[int] = Field(default=None, foreign_key="sensor.id")
     raw_reading: float
-    created_at: datetime = timestamp
+    created_at: datetime = timestamp_field()
 
 
 class WaterLevelReading(ReadingMixin, table=True):

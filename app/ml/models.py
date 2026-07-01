@@ -13,4 +13,4 @@ class Prediction(SQLModel, table=True):
     predicted_recharge_rate: float
     predicted_abstraction_volume: float
     confidence_score: float
-    created_at: datetime = timestamp
+    created_at: datetime = timestamp_field()
