@@ -3,6 +3,7 @@ from typing import Optional
 from datetime import datetime, timezone
 from enum import Enum
 from sqlalchemy import text
+from app.core.schemas import timestamp
 
 
 class PumpStatus(str, Enum):
@@ -55,10 +56,7 @@ class PumpHistory(SQLModel, table=True):
     pump_id: Optional[int] = Field(default=None, foreign_key="pump.id")
     action: PumpAction
     triggered_by: PumpTrigger
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP")},
-    )
+    created_at: datetime = timestamp
 
 
 class Schedule(SQLModel, table=True):

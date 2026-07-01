@@ -3,6 +3,7 @@ from pydantic import EmailStr
 from typing import Optional
 from datetime import datetime, timezone
 from sqlalchemy import text, DateTime
+from app.core.schemas import timestamp
 
 
 class UserBase(SQLModel):
@@ -17,11 +18,7 @@ class User(UserBase, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     hashed_password: str
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP")},
-        sa_type=DateTime(timezone=True),
-    )
+    created_at: datetime = timestamp
 
 
 class UserPublic(UserBase):

@@ -2,6 +2,7 @@ from sqlmodel import SQLModel, Field
 from typing import Optional
 from datetime import datetime, timezone
 from sqlalchemy import text
+from app.core.schemas import timestamp
 
 
 class Weather(SQLModel, table=True):
@@ -12,7 +13,4 @@ class Weather(SQLModel, table=True):
     temperature: float
     humidity: float
     precipitation: float
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
-        sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP")},
-    )
+    created_at: datetime = timestamp
