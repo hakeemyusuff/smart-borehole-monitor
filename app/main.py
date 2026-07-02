@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 
 from app.auth.routes import router as auth_router
 from app.location.routes import router as location_router
+from app.borehole.routes import router as borehole_router
 
 app = FastAPI()
 
@@ -33,6 +34,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 app.include_router(auth_router)
 app.include_router(location_router)
+app.include_router(borehole_router)
 
 
 @app.get("/")
