@@ -3,7 +3,7 @@ from pydantic import EmailStr
 from typing import Optional
 from datetime import datetime, timezone
 from sqlalchemy import text, DateTime
-from app.core.schemas import timestamp
+from app.core.schemas import timestamp_field
 
 
 class UserBase(SQLModel):

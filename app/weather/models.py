@@ -2,7 +2,7 @@ from sqlmodel import SQLModel, Field
 from typing import Optional
 from datetime import datetime, timezone
 from sqlalchemy import text
-from app.core.schemas import timestamp
+from app.core.schemas import timestamp_field
 
 
 class Weather(SQLModel, table=True):

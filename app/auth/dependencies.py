@@ -1,9 +1,9 @@
 from fastapi import Depends, HTTPException, status
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from core.database import get_session
-from auth.services import decode_access_token
-from auth.models import User, UserPublic
+from app.core.database import get_session
+from app.auth.services import decode_access_token
+from app.auth.models import User, UserPublic
 from fastapi.security import OAuth2PasswordBearer
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
