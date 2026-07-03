@@ -1,6 +1,6 @@
 from typing import TypeVar, Generic, Optional
 from pydantic import BaseModel
-from sqlmodel import SQLModel, Field
+from sqlmodel import Field
 from sqlalchemy import text, DateTime
 from datetime import datetime, timezone
 
