@@ -3,7 +3,7 @@ from typing import Optional
 from datetime import datetime, timezone
 from enum import Enum
 from sqlalchemy import text
-from app.core.schemas import timestamp_field
+from app.core.schemas import optional_timestamp_field, timestamp_field
 
 
 class SensorStatus(str, Enum):
@@ -26,7 +26,7 @@ class Sensor(SQLModel, table=True):
     status: SensorStatus = Field(default=SensorStatus.INACTIVE)
     device_key: Optional[str] = Field(default=None)
     type: SensorType
-    last_seen: Optional[datetime] = Field(default=None)
+    last_seen: Optional[datetime] = optional_timestamp_field()
 
 
 class ReadingMixin(SQLModel):

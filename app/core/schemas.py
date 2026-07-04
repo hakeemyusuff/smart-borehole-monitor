@@ -11,6 +11,11 @@ def timestamp_field():
     sa_type=DateTime(timezone=True), # type: ignore
 )
 
+def optional_timestamp_field():
+    return Field(
+        default=None,
+        sa_type=DateTime(timezone=True), # type: ignore
+    )
 
 T = TypeVar("T")
 

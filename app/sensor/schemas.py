@@ -20,4 +20,10 @@ class SensorCreateResponse(BaseModel):
     sensor: SensorPublic
     device_key: Optional[str] = None
     
+class ReadingIn(BaseModel):
+    sensor_id: int
+    reading: float
+    
+
+    
     
