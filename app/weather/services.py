@@ -68,25 +68,14 @@ async def fetch_weather(url: str, lat: float, long: float) -> dict[str, Any]:
 
 async def fetch_and_save_weather(
     location_id: int,
-    user_id: int,
+    lat: float,
+    long: float,
     session: AsyncSession,
 ) -> Weather:
     """
     Fetches weather data for the given location and saves it to the database
     """
-
-    # Logic for looking up longitude and latitude from Location comment out
-    #   because there's no longitude and latiude field yet in the Location model
-    # location = await session.exec(
-    #     select(Location)
-    #     .join(User, Location.user_id == User.id) # type: ignore
-    #     .where(User.id == user_id, Location.id == location_id)
-    # ).first()
-
-    # latitude = location.latitude
-    # longitude = location.longitude
-
-    parsed_data = await fetch_weather(OPEN_METEO_URL, LATITUDE, LONGITUDE)
+    parsed_data = await fetch_weather(OPEN_METEO_URL, lat, long)
 
     weather = Weather(
         location_id=location_id,

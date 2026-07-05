@@ -2,7 +2,13 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.schemas import ApiResponse
 from app.weather.models import Weather
-from app.weather.services import fetch_and_save_weather, get_weathers
+from app.weather.services import (
+    LATITUDE,
+    LONGITUDE,
+    _verify_location_ownership,
+    fetch_and_save_weather,
+    get_weathers,
+)
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.core.database import get_session
@@ -21,11 +27,23 @@ async def trigger_weather_fetch(
     session: AsyncSession = Depends(get_session),
 ):
     try:
-        weather = await fetch_and_save_weather(
-            location_id,
+        location = await _verify_location_ownership(
             current_user.id,  # type: ignore
+            location_id,
             session,
         )
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+        
+    lat = location.latitude if location.latitude is not None else LATITUDE
+    long = location.longitude if location.longitude is not None else LONGITUDE
+    
+    try:
+        weather = await fetch_and_save_weather(location_id, lat, long, session)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
