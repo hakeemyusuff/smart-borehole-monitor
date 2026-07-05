@@ -10,7 +10,7 @@ class Weather(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     location_id: Optional[int] = Field(default=None, foreign_key="location.id")
-    temperature: float
-    humidity: float
-    precipitation: float
+    temperature: Optional[float] = Field(default=None)
+    humidity: Optional[float] = Field(default=None)
+    precipitation: Optional[float] = Field(default=None)
     created_at: datetime = timestamp_field()

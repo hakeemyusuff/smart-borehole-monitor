@@ -13,6 +13,8 @@ router = APIRouter(prefix="/locations", tags=["Locations"])
 
 class LocationCreate(BaseModel):
     name: str
+    latitude: float
+    longitude: float
 
 
 @router.post(
@@ -30,7 +32,12 @@ async def create(
             status_code=status.HTTP_400_BAD_REQUEST, detail="No user with this ID"
         )
 
-    location = await create_location(payload.name, current_user.id, session)
+    location = await create_location(
+        **payload.model_dump(),
+        user_id=current_user.id,
+        session=session,
+    )
+    
     return ApiResponse[Location](
         status="success",
         message="Location added successfully.",

@@ -5,10 +5,17 @@ from app.location.models import Location
 
 async def create_location(
     name: str,
+    latitude: float,
+    longitude: float,
     user_id: int,
     session: AsyncSession,
 ) -> Location:
-    location = Location(name=name, user_id=user_id)
+    location = Location(
+        name=name,
+        latitude=latitude,
+        longitude=longitude,
+        user_id=user_id,
+    )
     session.add(location)
     await session.commit()
     await session.refresh(location)

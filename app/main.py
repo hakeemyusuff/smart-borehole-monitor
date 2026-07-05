@@ -7,6 +7,7 @@ from app.auth.routes import router as auth_router
 from app.location.routes import router as location_router
 from app.borehole.routes import router as borehole_router
 from app.sensor.routes import router as sensor_router
+from app.weather.routes import router as weather_router
 
 app = FastAPI()
 
@@ -37,6 +38,7 @@ app.include_router(auth_router)
 app.include_router(location_router)
 app.include_router(borehole_router)
 app.include_router(sensor_router)
+app.include_router(weather_router)
 
 
 @app.get("/")
