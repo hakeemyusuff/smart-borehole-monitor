@@ -1,16 +1,19 @@
-from fastapi import APIRouter, HTTPException, Depends, status, Header
+from fastapi import APIRouter, HTTPException, Depends, status, Header, Query
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.auth.models import User
 from app.auth.dependencies import get_current_user
 from app.core.database import get_session
 from app.core.schemas import ApiResponse
 from app.sensor.services import (
+    _verify_borehole_ownership,
     create_sensor,
     get_sensor,
     get_sensors,
     ingest_reading,
     list_flow_readings,
     list_water_levels,
+    Range,
+    get_readings_for_range,
 )
 from app.sensor.schemas import (
     SensorCreate,
@@ -229,4 +232,54 @@ async def list_all_flow_readings(
         status="success",
         message="",
         data=readings,
+    )
+
+
+@router.get("/water-level/{borehole_id}/{sensor_id}/chart")
+async def water_level_chart(
+    borehole_id: int,
+    sensor_id: int,
+    range_: Range = Query(Range.day),
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    await _verify_borehole_ownership(borehole_id, current_user.id, session)  # type: ignore
+    data = await get_readings_for_range(
+        session,
+        WaterLevelReading,
+        WaterLevelReading.water_level,
+        sensor_id,
+        borehole_id,
+        range_,
+    )
+
+    return ApiResponse(
+        status="success",
+        message="water level chart data",
+        data=data,
+    )
+
+
+@router.get("/flow-reading/{borehole_id}/{sensor_id}/chart")
+async def flow_chart(
+    borehole_id: int,
+    sensor_id: int,
+    range_: Range = Query(Range.day),
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    await _verify_borehole_ownership(borehole_id, current_user.id, session)  # type: ignore
+    data = await get_readings_for_range(
+        session,
+        FlowReading,
+        FlowReading.raw_reading,
+        sensor_id,
+        borehole_id,
+        range_,
+    )
+
+    return ApiResponse(
+        status="success",
+        message="Flow chart data",
+        data=data,
     )

@@ -83,7 +83,7 @@ async def fetch_and_save_weather(
         humidity=parsed_data["humidity"],
         precipitation=parsed_data["precipitation"],
     )
-
+    
     session.add(weather)
     await session.commit()
     await session.refresh(weather)

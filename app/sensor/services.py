@@ -1,6 +1,7 @@
 import secrets
+from enum import Enum
 from typing import Any, Optional
-from sqlmodel import select
+from sqlmodel import select, func, text
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.auth.services import hash_password, verify_password
 from app.sensor.models import (
@@ -12,7 +13,20 @@ from app.sensor.models import (
 )
 from app.borehole.models import Borehole
 from app.location.models import Location
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+
+class Range(str, Enum):
+    day = "day"
+    week = "week"
+    month = "month"
+
+
+RANGE_CONFIG = {
+    Range.day: {"lookback": timedelta(days=1), "bucket": None},
+    Range.week: {"lookback": timedelta(days=7), "bucket": "1 hour"},
+    Range.month: {"lookback": timedelta(days=30), "bucket": "6 hours"},
+}
 
 
 async def _verify_borehole_ownership(
@@ -170,8 +184,7 @@ async def list_water_levels(
 ) -> list[WaterLevelReading]:
     await _verify_borehole_ownership(borehole_id, user_id, session)
     result = await session.exec(
-        select(WaterLevelReading)
-        .where(
+        select(WaterLevelReading).where(
             WaterLevelReading.sensor_id == sensor_id,
             WaterLevelReading.borehole_id == borehole_id,
         )
@@ -188,11 +201,94 @@ async def list_flow_readings(
     await _verify_borehole_ownership(borehole_id, user_id, session)
     result = await session.exec(
         select(FlowReading).where(
-           FlowReading.sensor_id == sensor_id,
-           FlowReading.borehole_id == borehole_id,
+            FlowReading.sensor_id == sensor_id,
+            FlowReading.borehole_id == borehole_id,
         )
     )
-    
+
     readings = result.all()
-    
+
     return list(readings)
+
+
+async def get_raw_readings(
+    session,
+    model,
+    value_column,
+    sensor_id,
+    borehole_id,
+    since,
+):
+    stmt = (
+        select(model.created_at, value_column)
+        .where(model.sensor_id == sensor_id)
+        .where(model.borehole_id == borehole_id)
+        .where(model.created_at >= since)
+        .order_by(model.created_at)
+    )
+    result = await session.exec(stmt)
+    rows = result.all()
+
+    return [{"t": r[0].isoformat(), "value": r[1]} for r in rows]
+
+
+async def get_bucketed_readings(
+    session,
+    model,
+    value_column,
+    sensor_id,
+    borehole_id,
+    since,
+    bucket,
+):
+    origin = datetime(2000, 1, 1, tzinfo=timezone.utc)
+
+    bucket_expr = func.date_bin(
+        text(f"INTERVAL '{bucket}'"),
+        model.created_at,
+        origin,
+    )
+    bucket_col = bucket_expr.label("bucket")
+    avg_col = func.avg(value_column).label("avg_value")
+
+    stmt = (
+        select(bucket_col, avg_col)
+        .where(model.sensor_id == sensor_id)
+        .where(model.borehole_id == borehole_id)
+        .where(model.created_at >= since)
+        .group_by(bucket_expr)
+        .order_by(bucket_expr)
+    )
+
+    result = await session.exec(stmt)
+    rows = result.all()
+
+    return [
+        {"t": r[0].isoformat(), "value": float(r[1]) if r[1] is not None else None}
+        for r in rows
+    ]
+
+
+async def get_readings_for_range(
+    session,
+    model,
+    value_column,
+    sensor_id,
+    borehole_id,
+    range_,
+):
+    cfg = RANGE_CONFIG[range_]
+    since = datetime.now(timezone.utc) - cfg["lookback"]
+
+    if cfg["bucket"] is None:
+        return await get_raw_readings(
+            session,
+            model,
+            value_column,
+            sensor_id,
+            borehole_id,
+            since,
+        )
+    return await get_bucketed_readings(
+        session, model, value_column, sensor_id, borehole_id, since, cfg["bucket"]
+    )
