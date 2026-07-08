@@ -3,7 +3,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.auth.models import User
 from app.auth.dependencies import get_current_user
 from app.core.database import get_session
-from app.core.schemas import ApiResponse
+from app.core.schemas import ApiResponse, PaginatedDataEnvelope
 from app.sensor.services import (
     _verify_borehole_ownership,
     create_sensor,
@@ -144,20 +144,29 @@ async def ingest_water_level(
 
 @router.get(
     "/readings/water-level/{borehole_id}/{sensor_id}",
-    response_model=ApiResponse[list[WaterLevelReading]],
+    response_model=ApiResponse[PaginatedDataEnvelope[WaterLevelReading]],
 )
 async def list_all_water_level_readings(
     sensor_id: int,
     borehole_id: int,
+    skip: int = Query(0, ge=0, description="Items to skip (offset)"),
+    limit: int = Query(
+        50,
+        ge=1,
+        le=1000,
+        description="Max items to return (limit)",
+    ),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     try:
-        readings = await list_water_levels(
+        readings, total_count = await list_water_levels(
             sensor_id,
             borehole_id,
             current_user.id,  # type: ignore
             session,
+            skip=skip,
+            limit=limit,
         )
     except ValueError as e:
         raise HTTPException(
@@ -165,10 +174,15 @@ async def list_all_water_level_readings(
             detail=str(e),
         )
 
-    return ApiResponse[list[WaterLevelReading]](
+    return ApiResponse[PaginatedDataEnvelope[WaterLevelReading]](
         status="success",
-        message="",
-        data=readings,
+        message="ok",
+        data=PaginatedDataEnvelope(
+            items=readings,
+            total=total_count,
+            limit=limit,
+            offset=skip,
+        ),
     )
 
 
@@ -207,20 +221,29 @@ async def ingest_flow_reading(
 
 @router.get(
     "/readings/flow-reading/{borehole_id}/{sensor_id}",
-    response_model=ApiResponse[list[FlowReading]],
+    response_model=ApiResponse[PaginatedDataEnvelope[FlowReading]],
 )
 async def list_all_flow_readings(
     sensor_id: int,
     borehole_id: int,
+    skip: int = Query(0, ge=0, description="Items to skip (offset)"),
+    limit: int = Query(
+        50,
+        ge=1,
+        le=1000,
+        description="Max items to return (limit)",
+    ),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     try:
-        readings = await list_flow_readings(
+        readings, total_count = await list_flow_readings(
             sensor_id,
             borehole_id,
             current_user.id,  # type: ignore
             session,
+            skip,
+            limit,
         )
     except ValueError as e:
         raise HTTPException(
@@ -228,14 +251,19 @@ async def list_all_flow_readings(
             detail=str(e),
         )
 
-    return ApiResponse[list[FlowReading]](
+    return ApiResponse[PaginatedDataEnvelope[FlowReading]](
         status="success",
-        message="",
-        data=readings,
+        message="Ok",
+        data=PaginatedDataEnvelope(
+            items=readings,
+            total=total_count,
+            limit=limit,
+            offset=skip,
+        ),
     )
 
 
-@router.get("/water-level/{borehole_id}/{sensor_id}/chart")
+@router.get("/readings/water-level/{borehole_id}/{sensor_id}/chart")
 async def water_level_chart(
     borehole_id: int,
     sensor_id: int,
@@ -260,13 +288,13 @@ async def water_level_chart(
     )
 
 
-@router.get("/flow-reading/{borehole_id}/{sensor_id}/chart")
+@router.get("/readings/flow-reading/{borehole_id}/{sensor_id}/chart")
 async def flow_chart(
     borehole_id: int,
     sensor_id: int,
     range_: Range = Query(Range.day),
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     await _verify_borehole_ownership(borehole_id, current_user.id, session)  # type: ignore
     data = await get_readings_for_range(

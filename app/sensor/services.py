@@ -25,7 +25,7 @@ class Range(str, Enum):
 RANGE_CONFIG = {
     Range.day: {"lookback": timedelta(days=1), "bucket": None},
     Range.week: {"lookback": timedelta(days=7), "bucket": "1 hour"},
-    Range.month: {"lookback": timedelta(days=30), "bucket": "6 hours"},
+    Range.month: {"lookback": timedelta(days=30), "bucket": "24 hours"},
 }
 
 
@@ -180,35 +180,72 @@ async def ingest_reading(
 
 
 async def list_water_levels(
-    sensor_id: int, borehole_id: int, user_id: int, session: AsyncSession
-) -> list[WaterLevelReading]:
+    sensor_id: int,
+    borehole_id: int,
+    user_id: int,
+    session: AsyncSession,
+    skip: int = 0,
+    limit: int = 50,
+) -> tuple[list[WaterLevelReading], int]:
     await _verify_borehole_ownership(borehole_id, user_id, session)
-    result = await session.exec(
-        select(WaterLevelReading).where(
+
+    count_stmt = select(func.count(WaterLevelReading.id)).where(
+        WaterLevelReading.sensor_id == sensor_id,
+        WaterLevelReading.borehole_id == borehole_id,
+    )
+    count_result = await session.exec(count_stmt)
+    total_count = count_result.first() or 0
+
+    data_stmt = (
+        select(WaterLevelReading)
+        .where(
             WaterLevelReading.sensor_id == sensor_id,
             WaterLevelReading.borehole_id == borehole_id,
         )
+        .order_by(WaterLevelReading.created_at.desc())
+        .offset(skip)
+        .limit(limit)
     )
 
+    result = await session.exec(data_stmt)
     readings = result.all()
 
-    return list(readings)
+    return list(readings), total_count
 
 
 async def list_flow_readings(
-    sensor_id: int, borehole_id: int, user_id: int, session: AsyncSession
-):
+    sensor_id: int,
+    borehole_id: int,
+    user_id: int,
+    session: AsyncSession,
+    skip: int = 0,
+    limit: int = 0,
+) -> tuple[list[FlowReading], int]:
     await _verify_borehole_ownership(borehole_id, user_id, session)
-    result = await session.exec(
-        select(FlowReading).where(
+
+    count_stmt = select(func.count(FlowReading.id)).where(
+        FlowReading.sensor_id == sensor_id,
+        FlowReading.borehole_id == borehole_id,
+    )
+
+    count_result = await session.exec(count_stmt)
+    total_count = count_result.first() or 0
+
+    data_stmt = (
+        select(FlowReading)
+        .where(
             FlowReading.sensor_id == sensor_id,
             FlowReading.borehole_id == borehole_id,
         )
+        .order_by(FlowReading.created_at.desc())
+        .offset(skip)
+        .limit(limit)
     )
 
+    result = await session.exec(data_stmt)
     readings = result.all()
 
-    return list(readings)
+    return list(readings), total_count
 
 
 async def get_raw_readings(

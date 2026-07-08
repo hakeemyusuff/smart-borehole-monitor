@@ -23,3 +23,9 @@ class ApiResponse(BaseModel, Generic[T]):
     status: str
     message: str
     data: Optional[T] = None
+    
+class PaginatedDataEnvelope(BaseModel, Generic[T]):
+    items: list[T]
+    total: int
+    limit: int
+    offset: int
