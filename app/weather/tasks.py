@@ -1,7 +1,12 @@
+import logging
+
 from sqlmodel import select
 from app.core.database import async_session_maker
 from app.location.models import Location
 from app.weather.services import fetch_and_save_weather
+
+
+logger = logging.getLogger(__name__)
 
 
 async def fetch_weathers_for_all_locations():
@@ -30,6 +35,6 @@ async def fetch_weathers_for_all_locations():
                     loc.longitude,  # type: ignore
                     session,
                 )
-                print(f"[weather job] success for location {loc.id}")
+                logger.info("weather fetch succeeded for location %s", loc.id)
         except Exception as e:
-            print(f"[weather job] failed for location {loc.id}: {e}")
+            logger.exception("weather fetch failed for location %s: %s", loc.id, e)

@@ -1,9 +1,13 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+
+from app.core.config import settings
 from app.core.scheduler import start_scheduler, stop_scheduler
 
 from app.auth.routes import router as auth_router
@@ -13,13 +17,24 @@ from app.sensor.routes import router as sensor_router
 from app.weather.routes import router as weather_router
 
 
+logging.basicConfig(
+    level=logging.DEBUG if settings.debug else logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Starting up: Booting the weather synchronization engine...")
-    start_scheduler()
+    if settings.enable_scheduler:
+        logger.info("Starting weather synchronization scheduler")
+        start_scheduler()
+    else:
+        logger.info("Scheduler disabled via ENABLE_SCHEDULER=false")
     yield
-    print("Shutting down: Safely closing scheduler threads...")
-    stop_scheduler()
+    if settings.enable_scheduler:
+        logger.info("Shutting down scheduler")
+        stop_scheduler()
 
 
 app = FastAPI(
@@ -31,9 +46,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173"
-    ],
+    allow_origins=settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -80,7 +80,7 @@ uv sync
 
 ### 2. Environment variables
 
-Create a `.env` file in the project root with the following variables:
+Copy `.env.example` to `.env` and fill in values:
 
 ```
 DATABASE_URL=postgresql+asyncpg://<user>:<password>@localhost:5432/<db_name>
@@ -89,12 +89,16 @@ DEBUG=true
 DB_NAME=<db_name>
 DB_USER=<user>
 DB_PASSWORD=<password>
+ALLOWED_ORIGINS=http://localhost:5173
+ENABLE_SCHEDULER=true
 ```
 
 - `DATABASE_URL` — async PostgreSQL connection string used by the app.
 - `SECRET_KEY` — used to sign JWT access tokens. Generate a strong random value (for example, using Python's `secrets` module).
-- `DEBUG` — enables verbose SQL echoing when `true`.
+- `DEBUG` — enables verbose SQL echoing and debug-level logs when `true`.
 - `DB_NAME`, `DB_USER`, `DB_PASSWORD` — used by Docker Compose to provision the PostgreSQL container.
+- `ALLOWED_ORIGINS` — comma-separated list of frontend origins allowed by CORS. In production, set this to your deployed frontend URL(s).
+- `ENABLE_SCHEDULER` — set to `false` on all but one app process when running multiple workers (see [Deployment](#deployment)).
 
 ### 3. Start the database
 
@@ -190,9 +194,42 @@ Weather is also fetched automatically on a schedule (see below).
 
 ## Background Weather Fetching
 
-A background scheduler (APScheduler) periodically fetches current weather from the Open-Meteo API for every location that has coordinates, and stores it. The scheduler is started and stopped via the FastAPI application lifespan.
+A background scheduler (APScheduler) periodically fetches current weather from the Open-Meteo API for every location that has coordinates, and stores it. The scheduler is started and stopped via the FastAPI application lifespan, and can be toggled per-process with `ENABLE_SCHEDULER`.
 
-> Note: when running with multiple server worker processes, each worker starts its own scheduler instance, which would cause weather to be fetched more than once per interval. This is a consideration for production deployment.
+> When running with multiple worker processes, only ONE worker should have `ENABLE_SCHEDULER=true` — otherwise every worker fetches weather on the same interval. See [Deployment](#deployment).
+
+---
+
+## Deployment
+
+### 1. Environment
+
+Set the same variables as in [Setup — Environment variables](#2-environment-variables) on the target platform's secret store. In particular:
+
+- Set `SECRET_KEY` to a fresh, strong value — do not reuse the dev secret.
+- Set `DEBUG=false`.
+- Set `ALLOWED_ORIGINS` to your deployed frontend origin(s), comma-separated.
+- Set `ENABLE_SCHEDULER=true` on exactly one process; `false` everywhere else.
+
+### 2. Run migrations before starting the app
+
+On every release, run:
+
+```bash
+alembic upgrade head
+```
+
+This must complete successfully before the app process starts serving traffic. On platforms with a "release" or "pre-deploy" hook (Render, Railway, Fly, Heroku), put it there. Otherwise, run it manually or from a start script before `uvicorn`.
+
+### 3. Start command
+
+Run under a production ASGI server. Because of the scheduler note above, pin to a single worker unless you split the scheduler out:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --proxy-headers
+```
+
+If you need more workers, run one instance with `ENABLE_SCHEDULER=true --workers 1` and scale the rest with `ENABLE_SCHEDULER=false`.
 
 ---
 
