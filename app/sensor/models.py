@@ -40,12 +40,8 @@ class WaterLevelReading(ReadingMixin, table=True):
     __tablename__ = "water_level_reading"  # type: ignore
 
     water_level: float
-    calculated_water_depth: Optional[float] = Field(default=None)
-
 
 class FlowReading(ReadingMixin, table=True):
     __tablename__ = "flow_reading"  # type: ignore
 
-    raw_reading: float
-    calculated_flow_rate: Optional[float] = Field(default=None)
-    cummulative_volume: Optional[float] = Field(default=None)
+    abstraction_rate: float

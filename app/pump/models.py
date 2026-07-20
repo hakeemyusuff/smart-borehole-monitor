@@ -3,7 +3,7 @@ from typing import Optional
 from datetime import datetime, timezone
 from enum import Enum
 from sqlalchemy import text
-from app.core.schemas import timestamp_field
+from app.core.schemas import optional_timestamp_field, timestamp_field
 
 
 class PumpStatus(str, Enum):
@@ -46,7 +46,7 @@ class Pump(SQLModel, table=True):
     status: PumpStatus = Field(default=PumpStatus.OFF)
     power_rating: float
     depth: float
-    last_status_change: Optional[datetime] = Field(default=None)
+    last_status_change: Optional[datetime] = optional_timestamp_field()
 
 
 class PumpHistory(SQLModel, table=True):
