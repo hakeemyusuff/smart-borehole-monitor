@@ -159,7 +159,7 @@ async def ingest_reading(
         reading = FlowReading(
             borehole_id=producing_sensor.borehole_id,
             sensor_id=producing_sensor.id,
-            raw_reading=reading_value,
+            abstraction_rate=reading_value,
         )
 
     # Update heartbeats on both sensors
@@ -219,7 +219,7 @@ async def list_flow_readings(
     user_id: int,
     session: AsyncSession,
     skip: int = 0,
-    limit: int = 0,
+    limit: int = 50,
 ) -> tuple[list[FlowReading], int]:
     await _verify_borehole_ownership(borehole_id, user_id, session)
 

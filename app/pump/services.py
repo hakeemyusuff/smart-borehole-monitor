@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any
 from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlmodel import select
+from sqlmodel import func, select
 from app.auth.models import User
 from app.pump.models import (
     Pump,
@@ -94,3 +94,33 @@ async def change_pump_status(
     await session.refresh(pump_history)
 
     return pump, pump_history
+
+
+async def get_pump_history(
+    borehole_id: int,
+    user_id: int,
+    session: AsyncSession,
+    skip: int = 0,
+    limit: int = 50,
+) -> tuple[list[PumpHistory], int]:
+    await _verify_borehole_ownership(borehole_id, user_id, session)
+
+    count_result = await session.exec(
+        select(func.count(PumpHistory.id))
+        .join(Pump, PumpHistory.pump_id == Pump.id) # type: ignore
+        .where(Pump.borehole_id == borehole_id)
+    )
+    total_count = count_result.first() or 0
+    
+    data = await session.exec(
+        select(PumpHistory)
+        .join(Pump, PumpHistory.pump_id == Pump.id) # type: ignore
+        .where(Pump.borehole_id == borehole_id)
+        .order_by(PumpHistory.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    
+    pump_histories = data.all()
+    
+    return list(pump_histories), total_count
