@@ -44,3 +44,24 @@ async def create(
         message="Pump added successfully",
         data=pump,
     )
+
+
+@router.get("/{borehole_id}", response_model=ApiResponse[Pump])
+async def retrieve_pump(
+    borehole_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        pump = await get_pump(current_user.id, borehole_id, session)  # type: ignore
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    return ApiResponse[Pump](
+        status="success",
+        message="",
+        data=pump,
+    )
+
