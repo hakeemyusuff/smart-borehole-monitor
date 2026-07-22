@@ -65,3 +65,44 @@ async def retrieve_pump(
         data=pump,
     )
 
+
+@router.get(
+    "/pump-histories/{borehole_id}",
+    response_model=ApiResponse[PaginatedDataEnvelope[PumpHistory]],
+)
+async def list_pump_histories(
+    borehole_id: int,
+    skip: int = Query(0, ge=0, description="Items to skip (offset)"),
+    limit: int = Query(
+        50,
+        ge=1,
+        le=1000,
+        description="Max items to return (limit)",
+    ),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        histories, total_count = await get_pump_history(
+            borehole_id,
+            current_user.id,  # type: ignore
+            session,
+            skip=skip,
+            limit=limit,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+
+    return ApiResponse[PaginatedDataEnvelope[PumpHistory]](
+        status="success",
+        message="ok",
+        data=PaginatedDataEnvelope(
+            items=histories,
+            total=total_count,
+            limit=limit,
+            offset=skip,
+        ),
+    )

@@ -47,6 +47,22 @@ async def _verify_borehole_ownership(
     return borehole
 
 
+async def _authenticate_device(
+    device_id: int,
+    device_key: str,
+    session: AsyncSession,
+):
+    result = await session.exec(select(Sensor).where(Sensor.id == device_id))
+    esp32 = result.first()
+
+    if esp32 is None or esp32.device_key is None:
+        raise ValueError("Invalid device credentials")
+    if not verify_password(device_key, esp32.device_key):
+        raise ValueError("Invalid device credentials")
+    
+    return esp32
+
+
 async def create_sensor(
     data: dict[str, Any],
     user_id: int,
@@ -122,14 +138,7 @@ async def ingest_reading(
     Returns the created reading object (WaterLevelReading or FlowReading).
     """
     # Lookup and Authenticate the ESP32
-    result = await session.exec(select(Sensor).where(Sensor.id == esp32_id))
-    esp32 = result.first()
-
-    if esp32 is None or esp32.device_key is None:
-        raise ValueError("Invalid device credentials")
-    if not verify_password(device_key, esp32.device_key):
-        raise ValueError("Invalid device credentials")
-
+    esp32 = await _authenticate_device(esp32_id, device_key, session)
     # LookUP THE READING PRODUCING SENSOR
     result = await session.exec(
         select(Sensor).where(Sensor.id == reading_sensor_id),
