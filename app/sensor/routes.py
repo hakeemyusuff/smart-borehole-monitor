@@ -23,12 +23,7 @@ from app.sensor.schemas import (
 )
 from app.sensor.models import Sensor, SensorType, FlowReading, WaterLevelReading
 
-router = APIRouter(
-    prefix="/sensors",
-    tags=[
-        "Sensors",
-    ],
-)
+router = APIRouter(prefix="/sensors", tags=["Sensors"])
 
 
 @router.post(
@@ -48,7 +43,10 @@ async def create(
             session,
         )
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
 
     message = (
         "ESP32 registered. Save this device key now, it will not be shown again."
