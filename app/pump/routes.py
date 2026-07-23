@@ -170,7 +170,7 @@ async def update_status_device(
 
     try:
         await change_pump_status(
-            borehole_id=device.borehole_id, #type: ignore
+            borehole_id=device.borehole_id, 
             new_status=payload.new_status,
             pump_trigger=PumpTrigger.CRITICAL_SAFETY,
             session=session,
