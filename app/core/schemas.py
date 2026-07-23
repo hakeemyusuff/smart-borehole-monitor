@@ -18,6 +18,7 @@ def optional_timestamp_field():
     )
 
 T = TypeVar("T")
+Y = TypeVar("Y")
 
 class ApiResponse(BaseModel, Generic[T]):
     status: str
@@ -29,3 +30,7 @@ class PaginatedDataEnvelope(BaseModel, Generic[T]):
     total: int
     limit: int
     offset: int
+    
+class StatusDataEnvelope(BaseModel, Generic[T, Y]):
+    pump: T
+    pump_history: Optional[Y]

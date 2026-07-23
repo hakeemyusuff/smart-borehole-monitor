@@ -3,8 +3,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.auth.models import User
 from app.auth.dependencies import get_current_user
 from app.core.database import get_session
-from app.core.schemas import ApiResponse, PaginatedDataEnvelope
-from app.sensor.services import _verify_borehole_ownership
+from app.core.schemas import ApiResponse, PaginatedDataEnvelope, StatusDataEnvelope
+from app.sensor.services import _verify_borehole_ownership, _authenticate_device
 from app.pump.services import (
     create_pump,
     get_pump,
@@ -12,7 +12,7 @@ from app.pump.services import (
     get_pump_history,
 )
 from app.pump.models import Pump, PumpHistory, PumpAction, PumpStatus, PumpTrigger
-from app.pump.schemas import PumpCreate
+from app.pump.schemas import PumpCreate, StatusChange
 
 router = APIRouter(prefix="/pumps", tags=["pumps"])
 
@@ -105,4 +105,84 @@ async def list_pump_histories(
             limit=limit,
             offset=skip,
         ),
+    )
+
+
+@router.post(
+    "/{borehole_id}",
+    response_model=ApiResponse[StatusDataEnvelope[Pump, PumpHistory]],
+    status_code=status.HTTP_200_OK,
+)
+async def update_status_manual(
+    borehole_id: int,
+    payload: StatusChange,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    await _verify_borehole_ownership(borehole_id, current_user.id, session)  # type: ignore
+
+    try:
+        pump, pump_history = await change_pump_status(
+            borehole_id=borehole_id,
+            new_status=payload.new_status,
+            pump_trigger=PumpTrigger.MANUAL_OVERRIDE,
+            session=session,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+
+    if pump_history is None:
+        message = f"pump was already {pump.status}, no changes made"
+    else:
+        message = f"Pump turned {pump.status}"
+
+    return ApiResponse[StatusDataEnvelope[Pump, PumpHistory]](
+        status="success",
+        message=message,
+        data=StatusDataEnvelope(
+            pump=pump,
+            pump_history=pump_history,
+        ),
+    )
+
+
+@router.post(
+    "/device",
+    response_model=ApiResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def update_status_device(
+    payload: StatusChange,
+    x_device_id: int = Header(...),
+    x_device_key: str = Header(...),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        device = await _authenticate_device(x_device_id, x_device_key, session)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+        )
+
+    try:
+        await change_pump_status(
+            borehole_id=device.borehole_id, #type: ignore
+            new_status=payload.new_status,
+            pump_trigger=PumpTrigger.CRITICAL_SAFETY,
+            session=session,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+
+    return ApiResponse(
+        status="success",
+        message="ok",
+        data=None,
     )

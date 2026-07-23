@@ -22,7 +22,7 @@ class Sensor(SQLModel, table=True):
     __tablename__ = "sensor"  # type: ignore
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    borehole_id: Optional[int] = Field(default=None, foreign_key="borehole.id")
+    borehole_id: int = Field(foreign_key="borehole.id")
     status: SensorStatus = Field(default=SensorStatus.INACTIVE)
     device_key: Optional[str] = Field(default=None)
     type: SensorType
