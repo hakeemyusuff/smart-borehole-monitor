@@ -95,10 +95,14 @@ async def list_pump_histories(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         )
+    if total_count == 0:
+        message = "No histories yet!"
+    else:
+        message = "ok"
 
     return ApiResponse[PaginatedDataEnvelope[PumpHistory]](
         status="success",
-        message="ok",
+        message=message,
         data=PaginatedDataEnvelope(
             items=histories,
             total=total_count,
@@ -109,7 +113,7 @@ async def list_pump_histories(
 
 
 @router.post(
-    "/{borehole_id}",
+    "/change-status/manual/{borehole_id}",
     response_model=ApiResponse[StatusDataEnvelope[Pump, PumpHistory]],
     status_code=status.HTTP_200_OK,
 )
@@ -119,7 +123,13 @@ async def update_status_manual(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    await _verify_borehole_ownership(borehole_id, current_user.id, session)  # type: ignore
+    try:
+        await _verify_borehole_ownership(borehole_id, current_user.id, session)  # type: ignore
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
 
     try:
         pump, pump_history = await change_pump_status(
@@ -135,9 +145,9 @@ async def update_status_manual(
         )
 
     if pump_history is None:
-        message = f"pump was already {pump.status}, no changes made"
+        message = f"pump was already {pump.status.value}, no changes made"
     else:
-        message = f"Pump turned {pump.status}"
+        message = f"Pump turned {pump.status.value}"
 
     return ApiResponse[StatusDataEnvelope[Pump, PumpHistory]](
         status="success",
@@ -150,7 +160,7 @@ async def update_status_manual(
 
 
 @router.post(
-    "/device",
+    "/change-status/device",
     response_model=ApiResponse,
     status_code=status.HTTP_200_OK,
 )
@@ -170,7 +180,7 @@ async def update_status_device(
 
     try:
         await change_pump_status(
-            borehole_id=device.borehole_id, 
+            borehole_id=device.borehole_id,
             new_status=payload.new_status,
             pump_trigger=PumpTrigger.CRITICAL_SAFETY,
             session=session,
