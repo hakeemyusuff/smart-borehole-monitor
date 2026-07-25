@@ -298,7 +298,7 @@ async def flow_chart(
     data = await get_readings_for_range(
         session,
         FlowReading,
-        FlowReading.raw_reading,
+        FlowReading.abstraction_rate,
         sensor_id,
         borehole_id,
         range_,
