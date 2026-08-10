@@ -1,0 +1,13 @@
+[
+  "level_now",
+  "delta_1h",
+  "delta_3h",
+  "delta_6h",
+  "pumped_min_1h",
+  "vol_24h_l",
+  "rain_1h",
+  "rain_24h",
+  "rain_72h",
+  "wetness",
+  "hour_of_day"
+]
