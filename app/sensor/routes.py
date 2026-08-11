@@ -200,6 +200,7 @@ async def ingest_flow_reading(
             esp32_id=x_device_id,
             device_key=x_device_key,
             reading_sensor_id=payload.sensor_id,
+            captured_at=payload.captured_at,
             reading_value=payload.reading,
             expected_type=SensorType.FLOW_METER,
             session=session,

@@ -33,6 +33,7 @@ class ReadingMixin(SQLModel):
     id: Optional[int] = Field(default=None, primary_key=True)
     borehole_id: Optional[int] = Field(default=None, foreign_key="borehole.id")
     sensor_id: Optional[int] = Field(default=None, foreign_key="sensor.id")
+    captured_at: datetime
     created_at: datetime = timestamp_field()
 
 

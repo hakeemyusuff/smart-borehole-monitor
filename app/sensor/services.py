@@ -128,6 +128,7 @@ async def ingest_reading(
     reading_sensor_id: int,
     device_key: str,
     reading_value: float,
+    captured_at: datetime,
     expected_type: SensorType,
     session: AsyncSession,
 ):
@@ -163,12 +164,14 @@ async def ingest_reading(
             borehole_id=producing_sensor.borehole_id,
             sensor_id=producing_sensor.id,
             water_level=reading_value,
+            captured_at=captured_at,
         )
     else:  # FLOW READING
         reading = FlowReading(
             borehole_id=producing_sensor.borehole_id,
             sensor_id=producing_sensor.id,
-            abstraction_rate=reading_value,
+            abstraction_rate=reading_value,            
+            captured_at=captured_at,
         )
 
     # Update heartbeats on both sensors
@@ -211,7 +214,7 @@ async def list_water_levels(
             WaterLevelReading.sensor_id == sensor_id,
             WaterLevelReading.borehole_id == borehole_id,
         )
-        .order_by(WaterLevelReading.created_at.desc())
+        .order_by(WaterLevelReading.captured_at.desc())
         .offset(skip)
         .limit(limit)
     )
@@ -246,7 +249,7 @@ async def list_flow_readings(
             FlowReading.sensor_id == sensor_id,
             FlowReading.borehole_id == borehole_id,
         )
-        .order_by(FlowReading.created_at.desc())
+        .order_by(FlowReading.captured_at.desc())
         .offset(skip)
         .limit(limit)
     )
@@ -266,11 +269,11 @@ async def get_raw_readings(
     since,
 ):
     stmt = (
-        select(model.created_at, value_column)
+        select(model.captured_at, value_column)
         .where(model.sensor_id == sensor_id)
         .where(model.borehole_id == borehole_id)
-        .where(model.created_at >= since)
-        .order_by(model.created_at)
+        .where(model.captured_at >= since)
+        .order_by(model.captured_at)
     )
     result = await session.exec(stmt)
     rows = result.all()
@@ -291,7 +294,7 @@ async def get_bucketed_readings(
 
     bucket_expr = func.date_bin(
         text(f"INTERVAL '{bucket}'"),
-        model.created_at,
+        model.captured_at,
         origin,
     )
     bucket_col = bucket_expr.label("bucket")
@@ -301,7 +304,7 @@ async def get_bucketed_readings(
         select(bucket_col, avg_col)
         .where(model.sensor_id == sensor_id)
         .where(model.borehole_id == borehole_id)
-        .where(model.created_at >= since)
+        .where(model.captured_at >= since)
         .group_by(bucket_expr)
         .order_by(bucket_expr)
     )
