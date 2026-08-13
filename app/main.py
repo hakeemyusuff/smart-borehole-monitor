@@ -6,6 +6,7 @@ from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from fastapi.encoders import jsonable_encoder
 
 from app.core.config import settings
 from app.core.scheduler import start_scheduler, stop_scheduler
@@ -54,6 +55,7 @@ app.add_middleware(
 )
 
 
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(
@@ -76,7 +78,7 @@ async def validation_exception_handler(
         content={
             "status": "error",
             "message": "Invalid request data",
-            "data": exc.errors(),
+            "data": jsonable_encoder(exc.errors()),
         },
     )
 

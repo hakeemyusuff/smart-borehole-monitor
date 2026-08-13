@@ -9,13 +9,14 @@ from app.sensor.services import (
     create_sensor,
     get_sensor,
     get_sensors,
-    ingest_reading,
+    ingest_readings,
     list_flow_readings,
     list_water_levels,
     Range,
     get_readings_for_range,
 )
 from app.sensor.schemas import (
+    ReadingBatchIn,
     SensorCreate,
     SensorCreateResponse,
     SensorPublic,
@@ -53,11 +54,13 @@ async def create(
         if raw_key
         else "Sensor registered successfully"
     )
+    
+    public_sensor = SensorPublic.model_validate(sensor)
 
     return ApiResponse[SensorCreateResponse](
         status="success",
         message=message,
-        data=SensorCreateResponse(sensor=sensor, device_key=raw_key),
+        data=SensorCreateResponse(sensor=public_sensor, device_key=raw_key),
     )
 
 
@@ -113,17 +116,17 @@ async def retrieve(
     response_model=ApiResponse,
 )
 async def ingest_water_level(
-    payload: ReadingIn,
+    payload: ReadingBatchIn,
     x_device_id: int = Header(...),
     x_device_key: str = Header(...),
     session: AsyncSession = Depends(get_session),
 ):
     try:
-        await ingest_reading(
+        received, inserted =  await ingest_readings(
             esp32_id=x_device_id,
             device_key=x_device_key,
             reading_sensor_id=payload.sensor_id,
-            reading_value=payload.reading,
+            readings = payload.readings,
             expected_type=SensorType.PRESSURE_TRANSDUCER,
             session=session,
         )
@@ -135,8 +138,8 @@ async def ingest_water_level(
 
     return ApiResponse(
         status="success",
-        message="Reading recorded",
-        data=None,
+        message="ok",
+        data={"received": received, "inserted": inserted},
     )
 
 
@@ -190,18 +193,17 @@ async def list_all_water_level_readings(
     status_code=status.HTTP_201_CREATED,
 )
 async def ingest_flow_reading(
-    payload: ReadingIn,
+    payload: ReadingBatchIn,
     x_device_id: int = Header(...),
     x_device_key: str = Header(...),
     session: AsyncSession = Depends(get_session),
 ):
     try:
-        await ingest_reading(
+        received, inserted = await ingest_readings(
             esp32_id=x_device_id,
             device_key=x_device_key,
             reading_sensor_id=payload.sensor_id,
-            captured_at=payload.captured_at,
-            reading_value=payload.reading,
+            readings=payload.readings,
             expected_type=SensorType.FLOW_METER,
             session=session,
         )
@@ -213,8 +215,8 @@ async def ingest_flow_reading(
 
     return ApiResponse(
         status="success",
-        message="Reading recorded",
-        data=None,
+        message="ok",
+        data={"received": received, "inserted": inserted},
     )
 
 

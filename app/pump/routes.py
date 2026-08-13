@@ -182,7 +182,7 @@ async def update_status_device(
         await change_pump_status(
             borehole_id=device.borehole_id,
             new_status=payload.new_status,
-            pump_trigger=PumpTrigger.CRITICAL_SAFETY,
+            pump_trigger=PumpTrigger.MANUAL_OVERRIDE,
             session=session,
         )
     except ValueError as e:

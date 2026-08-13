@@ -3,6 +3,7 @@ from enum import Enum
 from typing import Any, Optional
 from sqlmodel import select, func, text
 from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.auth.services import hash_password, verify_password
 from app.sensor.models import (
     Sensor,
@@ -11,6 +12,7 @@ from app.sensor.models import (
     FlowReading,
     WaterLevelReading,
 )
+from app.sensor.schemas import ReadingIn
 from app.borehole.models import Borehole
 from app.location.models import Location
 from datetime import datetime, timezone, timedelta
@@ -122,22 +124,23 @@ async def get_sensor(
     return sensor
 
 
-async def ingest_reading(
+async def ingest_readings(
     *,
     esp32_id: int,
     reading_sensor_id: int,
     device_key: str,
-    reading_value: float,
-    captured_at: datetime,
+    readings: list[ReadingIn],
     expected_type: SensorType,
     session: AsyncSession,
-):
+) -> tuple[int, int]:
     """
-    This authenticate the ESP32, validates that the reading is coming from the
-    right sensor and it belongs to the same borehole, and it is of expected type,
-    stores the reading and updates last_seen on sensors.
-    Returns the created reading object (WaterLevelReading or FlowReading).
+    Authenticates the ESP32 once, validates the producing sensor once, then
+    bulk-inserts all readings, skipping any that duplicate an existing
+    (sensor_id, captured_at) pair.
+
+    Returns (received_count, inserted_count).
     """
+
     # Lookup and Authenticate the ESP32
     esp32 = await _authenticate_device(esp32_id, device_key, session)
     # LookUP THE READING PRODUCING SENSOR
@@ -158,37 +161,49 @@ async def ingest_reading(
             f"Endpoint expected {expected_type.value}, got {producing_sensor.type.value}"
         )
 
+    now = datetime.now(timezone.utc)
+    
     # Build the correct reading level
     if expected_type == SensorType.PRESSURE_TRANSDUCER:
-        reading = WaterLevelReading(
-            borehole_id=producing_sensor.borehole_id,
-            sensor_id=producing_sensor.id,
-            water_level=reading_value,
-            captured_at=captured_at,
-        )
+        model = WaterLevelReading
+        value_field = "water_level"
     else:  # FLOW READING
-        reading = FlowReading(
-            borehole_id=producing_sensor.borehole_id,
-            sensor_id=producing_sensor.id,
-            abstraction_rate=reading_value,            
-            captured_at=captured_at,
-        )
+       model = FlowReading
+       value_field = "abstraction_rate"
+       
+    rows = [
+        {
+            "borehole_id": producing_sensor.borehole_id,
+            "sensor_id": producing_sensor.id,
+            value_field: r.reading,
+            "captured_at": r.captured_at,
+            "created_at": now,
+        }
+        for r in readings
+    ]
+    
+    stmt = (
+        pg_insert(model)
+        .values(rows)
+        .on_conflict_do_nothing(index_elements=["sensor_id", "captured_at"])
+        .returning(model.id) # type: ignore
+    )
+    
+    result = await session.exec(stmt)
+    inserted = len(result.all())
 
     # Update heartbeats on both sensors
-    now = datetime.now(timezone.utc)
     producing_sensor.status = SensorStatus.ACTIVE
     producing_sensor.last_seen = now
     esp32.status = SensorStatus.ACTIVE
     esp32.last_seen = now
-
-    # Commit changes to database
-    session.add(reading)
     session.add(producing_sensor)
     session.add(esp32)
-    await session.commit()
-    await session.refresh(reading)
 
-    return reading
+
+    await session.commit()
+
+    return len(readings), inserted
 
 
 async def list_water_levels(
