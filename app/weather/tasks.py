@@ -7,6 +7,7 @@ from app.weather.services import fetch_and_save_weather
 
 
 logger = logging.getLogger(__name__)
+job_logger = logging.getLogger("uvicorn.error")
 
 
 async def fetch_weathers_for_all_locations():
@@ -15,26 +16,29 @@ async def fetch_weathers_for_all_locations():
     fetches wether for each. Errors are isolated per each location so a failure
     doesn't cascade to others.
     """
-
-    async with async_session_maker() as session:
-        result = await session.exec(
-            select(Location).where(
-                Location.latitude != None,
-                Location.longitude != None,
-            )
-        )
-
-        locations = list(result.all())
-
-    for loc in locations:
-        try:
-            async with async_session_maker() as session:
-                await fetch_and_save_weather(
-                    loc.id,  # type: ignore
-                    loc.latitude,  # type: ignore
-                    loc.longitude,  # type: ignore
-                    session,
+    try:
+        async with async_session_maker() as session:
+            result = await session.exec(
+                select(Location).where(
+                    Location.latitude != None,
+                    Location.longitude != None,
                 )
-                logger.info("weather fetch succeeded for location %s", loc.id)
-        except Exception as e:
-            logger.exception("weather fetch failed for location %s: %s", loc.id, e)
+            )
+
+            locations = list(result.all())
+
+        for loc in locations:
+            try:
+                async with async_session_maker() as session:
+                    await fetch_and_save_weather(
+                        loc.id,  # type: ignore
+                        loc.latitude,  # type: ignore
+                        loc.longitude,  # type: ignore
+                        session,
+                    )
+                    logger.info("weather fetch succeeded for location %s", loc.id)
+            except Exception as e:
+                logger.exception("weather fetch failed for location %s: %s", loc.id, e)
+    except Exception:
+        job_logger.exception("fetch_weathers_for_all_locations job failed")
+        raise

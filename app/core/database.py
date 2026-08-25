@@ -11,7 +11,12 @@ from app.weather.models import Weather
 
 
 #This create the engine for database connection
-engine = create_async_engine(settings.database_url, echo=settings.debug)
+engine = create_async_engine(
+    settings.database_url,
+    echo=settings.debug,
+    pool_pre_ping=True,
+    pool_recycle=300,
+)
 
 #It handles the current session for the database connection
 async_session_maker = async_sessionmaker(
