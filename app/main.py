@@ -14,6 +14,7 @@ from app.core.scheduler import start_scheduler, stop_scheduler
 from app.auth.routes import router as auth_router
 from app.location.routes import router as location_router
 from app.borehole.routes import router as borehole_router
+from app.ml.services import load_model
 from app.sensor.routes import router as sensor_router
 from app.weather.routes import router as weather_router
 from app.pump.routes import router as pump_router
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    load_model()
     if settings.enable_scheduler:
         logger.info("Starting weather synchronization scheduler")
         start_scheduler()
