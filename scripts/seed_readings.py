@@ -1,20 +1,3 @@
-"""
-BoreSense synthetic data seeder — 45 days of physically coherent history.
-
-Generates, from ONE schedule definition and ONE physical state variable:
-  - WaterLevelReading  (30-min idle cadence; 1-min during pumping + 60 min after)
-  - FlowReading        (1-min cadence, ONLY during pumping, litres/minute)
-  - PumpHistory        (ON/OFF transitions: automatic_schedule / manual_override / critical_safety)
-  - Weather            (hourly temperature / humidity / precipitation from Open-Meteo archive)
-
-Recharge is driven by REAL historical rainfall for the location (Open-Meteo ERA5
-archive), so the rain -> recharge -> safe-abstraction relationship genuinely
-exists in the data for the ML pipeline to discover.
-
-Run:  python seed_boresense.py
-Requires: requests, sqlmodel, and your app's models importable (adjust imports below).
-"""
-
 from __future__ import annotations
 
 import math
@@ -24,7 +7,7 @@ import sys
 from datetime import datetime, date, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-import requests
+import requests 
 import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -208,8 +191,14 @@ def build_runs(
 
     for d in all_days:
         for start_local in PUMP_WINDOW_STARTS:
-            start = datetime.combine(d, start_local, tzinfo=LOCAL_TZ).astimezone(
-                timezone.utc
+            if rng.random() < 0.10:
+                continue  # some days, this window just doesn't happen
+            jitter = timedelta(minutes=rng.randint(-90, 90))
+            start = (
+                datetime.combine(d, start_local, tzinfo=LOCAL_TZ).astimezone(
+                    timezone.utc
+                )
+                + jitter
             )
             duration = rng.randint(*RUN_MINUTES_RANGE)
             runs.append(
@@ -314,6 +303,7 @@ def simulate(
                         sensor_id=FM_SENSOR_ID,
                         abstraction_rate=round(outflow, 3),
                         created_at=t,
+                        captured_at=t,
                     )
                 )
 
@@ -349,6 +339,7 @@ def simulate(
                     sensor_id=PT_SENSOR_ID,
                     water_level=round(measured, 3),
                     created_at=t,
+                    captured_at=t,
                 )
             )
 
