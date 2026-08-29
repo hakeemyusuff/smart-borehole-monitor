@@ -34,7 +34,7 @@ FEATURES_PATH = "models/feature_columns.json"
 TRAIN_FRACTION = 0.8  # first 80% of time = study, last 20% = exam
 N_TREES = 300
 RANDOM_STATE = 42
-HORIZON_HOURS = 24
+HORIZON_HOURS = 2
 MIN_ROWS = 200
 
 
@@ -53,11 +53,11 @@ def main() -> None:
         )
         return
 
-    target_cols = [f"y_{k}" for k in range(1, HORIZON_HOURS + 1)]
+    target_cols = [f"y_{HORIZON_HOURS}"]
     feature_cols = [c for c in table.columns if c != "t" and c not in target_cols]
 
     X = table[feature_cols].to_numpy(dtype=float)
-    Y = table[target_cols].to_numpy(dtype=float)
+    Y = table[target_cols].to_numpy(dtype=float).ravel()
 
     # Time-based split: NEVER shuffle time series. The exam must be the
     # future relative to the study material, exactly like production.
@@ -81,17 +81,15 @@ def main() -> None:
     # ── Grading ──
     pred = model.predict(X_test)  # shape (n_exam, 24)
     level_now_idx = feature_cols.index("level_now")
-    lazy = np.repeat(X_test[:, [level_now_idx]], HORIZON_HOURS, axis=1)
+    lazy = X_test[:, [level_now_idx]]
 
     print("\nExam results — mean absolute error in metres (lower is better):")
     print(f"{'horizon':>8} | {'forest':>7} | {'lazy baseline':>13}")
-    for k in (1, 6, 12, 24):
-        mae_model = float(np.mean(np.abs(pred[:, k - 1] - Y_test[:, k - 1])))
-        mae_lazy = float(np.mean(np.abs(lazy[:, k - 1] - Y_test[:, k - 1])))
-        verdict = (
-            "beats lazy" if mae_model < mae_lazy else "LOSES TO LAZY — investigate"
-        )
-        print(f"{k:>6}h  | {mae_model:>6.2f}m | {mae_lazy:>12.2f}m   {verdict}")
+    y_true = Y_test.ravel()
+    mae_model = float(np.mean(np.abs(pred - y_true)))
+    mae_lazy = float(np.mean(np.abs(lazy - y_true)))
+    verdict = "beats lazy" if mae_model < mae_lazy else "LOSES TO LAZY — investigate"
+    print(f"{HORIZON_HOURS:>6}h  | {mae_model:>6.2f}m | {mae_lazy:>12.2f}m   {verdict}")
 
     print("\nFeature importances (what the forest found useful):")
     ranked = sorted(

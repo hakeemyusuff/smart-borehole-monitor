@@ -18,6 +18,7 @@ from app.ml.services import load_model
 from app.sensor.routes import router as sensor_router
 from app.weather.routes import router as weather_router
 from app.pump.routes import router as pump_router
+from app.ml.routes import router as ml_router
 
 
 logging.basicConfig(
@@ -91,6 +92,7 @@ app.include_router(borehole_router, prefix="/api")
 app.include_router(sensor_router, prefix="/api")
 app.include_router(weather_router, prefix="/api")
 app.include_router(pump_router, prefix="/api")
+app.include_router(ml_router, prefix="/api")
 
 
 @app.get("/")

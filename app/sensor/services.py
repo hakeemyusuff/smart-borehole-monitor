@@ -297,7 +297,7 @@ async def get_raw_readings(
 
 
 async def get_bucketed_readings(
-    session,
+    session,    
     model,
     value_column,
     sensor_id,

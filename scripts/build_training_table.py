@@ -22,7 +22,7 @@ from app.ml.features import API_DECAY_HOURS, LEVEL_MATCH_TOLERANCE
 # ── Config ──────────────────────────────────────────────────────────────────
 BOREHOLE_ID = 5
 LOCATION_ID = 5
-HORIZON_HOURS = 24
+HORIZON_HOURS = 2
 OUTPUT_PATH = "data/training_table.csv"
 
 # ── Pure transformation (testable without a database) ───────────────────────
@@ -128,7 +128,9 @@ def build_training_table(
 
     # Targets: strictly future
     for k in range(1, HORIZON_HOURS + 1):
-        out[f"y_{k}"] = level_at(grid["t"] + pd.Timedelta(hours=k), "v")["v"].values
+        out[f"y_{HORIZON_HOURS}"] = level_at(
+            grid["t"] + pd.Timedelta(hours=HORIZON_HOURS), "v"
+        )["v"].values
 
     before = len(out)
     na_counts = out.isna().sum()
@@ -136,7 +138,7 @@ def build_training_table(
     print(na_counts[na_counts > 0].to_string())
     out = out.dropna().reset_index(drop=True)
     out.attrs["dropped_rows"] = before - len(out)
-    return out          # <- must be here, inside the function, and last
+    return out  # <- must be here, inside the function, and last
 
 
 # ── DB I/O ──────────────────────────────────────────────────────────────────
@@ -197,9 +199,9 @@ async def main() -> None:
     # the ambient head the level recovers toward, so FUTURE LEVEL should track
     # wetness. (Don't test wetness vs *change* — that's confounded: when the
     # level is already high in wet periods, the change is ~zero.)
-    corr = float(np.corrcoef(table["wetness"], table["y_24"])[0, 1])
+    corr = float(np.corrcoef(table["wetness"], table["y_2"])[0, 1])
     print(
-        f"Sanity check — corr(wetness, level 24h out): {corr:+.3f} "
+        f"Sanity check — corr(wetness, level 2h out): {corr:+.3f} "
         f"({'plausible' if corr > 0.15 else 'SUSPICIOUS — investigate before training'})"
     )
 

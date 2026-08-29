@@ -42,17 +42,20 @@ class ReadingMixin(SQLModel):
 class WaterLevelReading(ReadingMixin, table=True):
     __tablename__ = "water_level_reading"  # type: ignore
     __table_args__ = (
-            UniqueConstraint("sensor_id", "captured_at", name="uq_water_level_sensor_captured"),
-        )
-    
+        UniqueConstraint(
+            "sensor_id",
+            "captured_at",
+            name="uq_water_level_sensor_captured",
+        ),
+    )
+
     water_level: float
 
 
 class FlowReading(ReadingMixin, table=True):
     __tablename__ = "flow_reading"  # type: ignore
     __table_args__ = (
-            UniqueConstraint("sensor_id", "captured_at", name="uq_flow_sensor_captured"),
-        )
-    
+        UniqueConstraint("sensor_id", "captured_at", name="uq_flow_sensor_captured"),
+    )
 
     abstraction_rate: float
