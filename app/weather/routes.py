@@ -1,13 +1,14 @@
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Query
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.schemas import ApiResponse
+from app.sensor.services import Range
 from app.weather.models import Weather
 from app.weather.services import (
     LATITUDE,
     LONGITUDE,
     _verify_location_ownership,
     fetch_and_save_weather,
-    get_weathers,
+    get_weather_for_range,
 )
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
@@ -32,16 +33,16 @@ async def trigger_weather_fetch(
             location_id,
             session,
         )
-        
+
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         )
-        
+
     lat = location.latitude if location.latitude is not None else LATITUDE
     long = location.longitude if location.longitude is not None else LONGITUDE
-    
+
     try:
         weather = await fetch_and_save_weather(location_id, lat, long, session)
     except ValueError as e:
@@ -57,29 +58,25 @@ async def trigger_weather_fetch(
     )
 
 
-@router.get(
-    "/{location_id}",
-    response_model=ApiResponse[list[Weather]],
-)
-async def list_all(
+@router.get("/{location_id}/chart")
+async def weather_chart(
     location_id: int,
+    range_: Range = Query(Range.day),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     try:
-        weathers = await get_weathers(
+        data = await get_weather_for_range(
             location_id,
             current_user.id,  # type: ignore
+            range_,
             session,
         )
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
-    return ApiResponse[list[Weather]](
+    return ApiResponse(
         status="success",
-        message="",
-        data=weathers,
+        message="weather chart data",
+        data=data,
     )

@@ -1,10 +1,12 @@
 import httpx
 from typing import Any
+from datetime import datetime, timezone
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from app.weather.models import Weather
 from app.location.models import Location
 from app.auth.models import User
+from app.sensor.services import Range, RANGE_CONFIG
 
 # Hardocoded Ibadan Longitude and Latitude
 # TODO: Make use of longitude and latitude from location
@@ -91,17 +93,29 @@ async def fetch_and_save_weather(
     return weather
 
 
-async def get_weathers(
+async def get_weather_for_range(
     location_id: int,
     user_id: int,
+    range_: Range,
     session: AsyncSession,
-) -> list[Weather]:
+) -> list[dict]:
+    """Rainfall over the requested window, for overlaying on the level chart.
+    Returns [{t, precipitation}] ordered by time — bounded, unlike get_weathers."""
     await _verify_location_ownership(user_id, location_id, session)
 
+    cfg = RANGE_CONFIG[range_]
+    since = datetime.now(timezone.utc) - cfg["lookback"]
+    
     result = await session.exec(
-        select(Weather).where(Weather.location_id == location_id),
+        select(Weather.created_at, Weather.precipitation)
+        .where(Weather.location_id == location_id)
+        .where(Weather.created_at >= since)
+        .order_by(Weather.created_at)
     )
 
-    weathers = result.all()
+    rows = result.all()
 
-    return list(weathers)
+    return [
+        {"t": r[0].isoformat(), "precipitation": float(r[1]) if r[1] is not None else 0.0}
+        for r in rows
+    ]
