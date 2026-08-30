@@ -10,9 +10,10 @@ from app.pump.services import (
     get_pump,
     change_pump_status,
     get_pump_history,
+    get_pump_windows,
 )
 from app.pump.models import Pump, PumpHistory, PumpAction, PumpStatus, PumpTrigger
-from app.pump.schemas import PumpCreate, StatusChange
+from app.pump.schemas import PumpCreate, PumpWindow, StatusChange
 
 router = APIRouter(prefix="/pumps", tags=["pumps"])
 
@@ -195,4 +196,32 @@ async def update_status_device(
         status="success",
         message="ok",
         data=None,
+    )
+
+
+@router.get(
+    "/{borehole_id}/pump-windows",
+    response_model=ApiResponse[list[PumpWindow]],
+)
+async def pump_windows(
+    borehole_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        data = await get_pump_windows(
+            borehole_id,
+            current_user.id, # type: ignore
+            session,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    
+    return ApiResponse[list[PumpWindow]](
+        status="success",
+        message="pump windows",
+        data=data,
     )

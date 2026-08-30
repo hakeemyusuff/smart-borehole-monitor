@@ -17,6 +17,8 @@ from app.borehole.models import Borehole
 from app.location.models import Location
 from datetime import datetime, timezone, timedelta
 
+import pandas as pd
+
 
 class Range(str, Enum):
     day = "day"
@@ -356,3 +358,4 @@ async def get_readings_for_range(
     return await get_bucketed_readings(
         session, model, value_column, sensor_id, borehole_id, since, cfg["bucket"]
     )
+
