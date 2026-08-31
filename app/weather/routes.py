@@ -9,6 +9,7 @@ from app.weather.services import (
     _verify_location_ownership,
     fetch_and_save_weather,
     get_weather_for_range,
+    get_weathers,
 )
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
@@ -55,6 +56,34 @@ async def trigger_weather_fetch(
         status="success",
         message="Weather fetched and stored",
         data=weather,
+    )
+
+
+@router.get(
+    "/{location_id}",
+    response_model=ApiResponse[list[Weather]],
+)
+async def list_all(
+    location_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        weathers = await get_weathers(
+            location_id,
+            current_user.id,  # type: ignore
+            session,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+
+    return ApiResponse[list[Weather]](
+        status="success",
+        message="",
+        data=weathers,
     )
 
 
