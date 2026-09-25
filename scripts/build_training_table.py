@@ -1,213 +1,206 @@
 from __future__ import annotations
 
 import asyncio
-import math
-import os
-from datetime import timedelta
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.auth.models import User  # noqa: F401  (metadata registration)
-from app.borehole.models import Borehole  # noqa: F401
-from app.location.models import Location  # noqa: F401
-from app.sensor.models import WaterLevelReading, FlowReading
-from app.weather.models import Weather
 from app.core.config import settings
-from app.ml.features import API_DECAY_HOURS, LEVEL_MATCH_TOLERANCE
+from app.sensor.models import WaterLevelReading
 
-# ── Config ──────────────────────────────────────────────────────────────────
-BOREHOLE_ID = 5
-LOCATION_ID = 5
+
+# The well and sensor the model is being developed for
+BOREHOLE_ID = 2
+SENSOR_ID = 4
+
 HORIZON_HOURS = 2
-OUTPUT_PATH = "data/training_table.csv"
+MATCH_TOLERANCE = pd.Timedelta(minutes=35)
 
-# ── Pure transformation (testable without a database) ───────────────────────
+OUTPUT_PATH = Path("data/level_training_table.csv")
 
-
-def build_training_table(
-    levels: pd.DataFrame,  # columns: created_at (tz-aware UTC), water_level
-    flows: pd.DataFrame,  # columns: created_at, abstraction_rate (L/min, one row ≈ one minute)
-    weather: pd.DataFrame,  # columns: created_at (hourly), precipitation
-) -> pd.DataFrame:
-    if levels.empty:
-        raise ValueError(
-            "No water-level readings for this borehole — nothing to build a training table from."
-        )
-    if weather.empty:
-        raise ValueError(
-            "No weather rows for this location — rain features cannot be computed."
-        )
-
-    levels = levels.sort_values("created_at").reset_index(drop=True)
-    flows = flows.sort_values("created_at").reset_index(drop=True)
-    weather = weather.sort_values("created_at").reset_index(drop=True)
-
-    # Hourly grid: first full hour with 6h of history behind it, last hour
-    # with a full horizon of future ahead of it.
-    t0 = levels["created_at"].min().ceil("h") + pd.Timedelta(hours=6)
-    t1 = levels["created_at"].max().floor("h") - pd.Timedelta(hours=HORIZON_HOURS)
-    if t1 <= t0:
-        raise ValueError("Not enough history to build even one training row.")
-    grid = pd.DataFrame({"t": pd.date_range(t0, t1, freq="h")})
-
-    # Level at arbitrary times via nearest-reading lookup
-    lv = levels.rename(columns={"created_at": "ts"})
-
-    def level_at(times: pd.Series, colname: str) -> pd.DataFrame:
-        probe = pd.DataFrame({"ts": times}).sort_values("ts")
-        merged = pd.merge_asof(
-            probe,
-            lv,
-            on="ts",
-            direction="nearest",
-            tolerance=LEVEL_MATCH_TOLERANCE,
-        )
-        return merged.rename(columns={"water_level": colname})[["ts", colname]]
-
-    out = grid.copy()
-    out["level_now"] = level_at(grid["t"], "v")["v"].values
-    for h, name in ((1, "lag_1h"), (3, "lag_3h"), (6, "lag_6h")):
-        out[name] = level_at(grid["t"] - pd.Timedelta(hours=h), "v")["v"].values
-    out["delta_1h"] = out["level_now"] - out["lag_1h"]
-    out["delta_3h"] = out["level_now"] - out["lag_3h"]
-    out["delta_6h"] = out["level_now"] - out["lag_6h"]
-    out = out.drop(columns=["lag_1h", "lag_3h", "lag_6h"])
-
-    # Pumping features from flow rows (each row ≈ 1 minute at abstraction_rate L/min)
-    ft = flows["created_at"].values
-    fv = flows["abstraction_rate"].to_numpy(dtype=float)
-    cum_vol = np.concatenate(([0.0], np.cumsum(fv)))  # litres, since L/min × 1 min
-
-    def flow_window(ts: pd.Series, hours: float) -> tuple[np.ndarray, np.ndarray]:
-        end = np.searchsorted(ft, ts.values, side="right")
-        start = np.searchsorted(
-            ft, (ts - pd.Timedelta(hours=hours)).values, side="right"
-        )
-        return (end - start).astype(float), cum_vol[end] - cum_vol[start]
-
-    out["pumped_min_1h"], _ = flow_window(grid["t"], 1.0)
-    _, out["vol_24h_l"] = flow_window(grid["t"], 24.0)
-
-    # Rain features from hourly weather
-    wt = weather["created_at"].values
-    wp = weather["precipitation"].fillna(0.0).to_numpy(dtype=float)
-    cum_rain = np.concatenate(([0.0], np.cumsum(wp)))
-
-    def rain_window(ts: pd.Series, hours: float) -> np.ndarray:
-        end = np.searchsorted(wt, ts.values, side="right")
-        start = np.searchsorted(
-            wt, (ts - pd.Timedelta(hours=hours)).values, side="right"
-        )
-        return cum_rain[end] - cum_rain[start]
-
-    out["rain_1h"] = rain_window(grid["t"], 1.0)
-    out["rain_24h"] = rain_window(grid["t"], 24.0)
-    out["rain_72h"] = rain_window(grid["t"], 72.0)
-
-    # Wetness index: same exponential rain-memory the recharge physics uses
-    decay = math.exp(-1.0 / API_DECAY_HOURS)
-    wetness_vals = np.empty(len(weather))
-    w = 0.0
-    for i, p in enumerate(wp):
-        w = w * decay + p
-        wetness_vals[i] = w
-    wet = pd.DataFrame({"ts": weather["created_at"], "wetness": wetness_vals})
-    out["wetness"] = pd.merge_asof(
-        grid.rename(columns={"t": "ts"}),
-        wet,
-        on="ts",
-        direction="backward",
-        tolerance=pd.Timedelta(hours=6),
-    )["wetness"].values
-
-    out["hour_of_day"] = grid["t"].dt.hour
-
-    # Targets: strictly future
-    for k in range(1, HORIZON_HOURS + 1):
-        out[f"y_{HORIZON_HOURS}"] = level_at(
-            grid["t"] + pd.Timedelta(hours=HORIZON_HOURS), "v"
-        )["v"].values
-
-    before = len(out)
-    na_counts = out.isna().sum()
-    print("NaNs per column before dropna:")
-    print(na_counts[na_counts > 0].to_string())
-    out = out.dropna().reset_index(drop=True)
-    out.attrs["dropped_rows"] = before - len(out)
-    return out  # <- must be here, inside the function, and last
-
-
-# ── DB I/O ──────────────────────────────────────────────────────────────────
-
-
-async def fetch_frames() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    engine = create_async_engine(settings.database_url, echo=False)
-    async with AsyncSession(engine, expire_on_commit=False) as session:
-        lv = (
-            await session.exec(
-                select(
-                    WaterLevelReading.captured_at, WaterLevelReading.water_level
-                ).where(WaterLevelReading.borehole_id == BOREHOLE_ID)
-            )
-        ).all()
-        fl = (
-            await session.exec(
-                select(FlowReading.captured_at, FlowReading.abstraction_rate).where(
-                    FlowReading.borehole_id == BOREHOLE_ID
-                )
-            )
-        ).all()
-        wx = (
-            await session.exec(
-                select(Weather.created_at, Weather.precipitation).where(
-                    Weather.location_id == LOCATION_ID
-                )
-            )
-        ).all()
-
-    levels = pd.DataFrame(lv, columns=["created_at", "water_level"])
-    flows = pd.DataFrame(fl, columns=["created_at", "abstraction_rate"])
-    weather = pd.DataFrame(wx, columns=["created_at", "precipitation"])
-    for df in (levels, flows, weather):
-        df["created_at"] = pd.to_datetime(df["created_at"], utc=True)
-    return levels, flows, weather
-
-
-async def main() -> None:
-    levels, flows, weather = await fetch_frames()
-    print(
-        f"Loaded: {len(levels)} level rows, {len(flows)} flow rows, "
-        f"{len(weather)} weather rows"
+async def fetch_levels() -> pd.DataFrame:
+    """Read real water-level measurements without changing database"""
+    
+    engine = create_async_engine(
+        settings.database_url,
+        echo=False,
     )
 
     try:
-        table = build_training_table(levels, flows, weather)
-    except ValueError as e:
-        print(f"Cannot build training table: {e}")
-        return
+        async with AsyncSession(engine) as session:
+            statement = (
+                select(
+                    WaterLevelReading.captured_at,
+                    WaterLevelReading.created_at,
+                    WaterLevelReading.water_level,
+                )
+                .where(
+                    WaterLevelReading.borehole_id == BOREHOLE_ID,
+                    WaterLevelReading.sensor_id == SENSOR_ID,
+                )
+                .order_by(WaterLevelReading.captured_at) #type: ignore
+            )
+            
+            result = await session.exec(statement)
+            rows = result.all()
+            
+        return pd.DataFrame(
+            rows,
+            columns=["captured_at", "created_at", "water_level"],
+        )
+        
+    finally:
+        await engine.dispose()
 
-    print(
-        f"Training table: {len(table)} rows × {len(table.columns)} cols "
-        f"({table.attrs.get('dropped_rows', 0)} dropped for gaps/edges)"
+
+def build_training_table(levels: pd.DataFrame) -> pd.DataFrame:
+    """Create hourly examples using past inputs and a future target."""
+
+    if levels.empty:
+        raise ValueError("No water-level readings found.")
+
+    levels = levels.copy()
+
+    for column in ["captured_at", "created_at"]:
+        levels[column] = pd.to_datetime(
+            levels[column],
+            utc=True,
+            format="mixed",
+            errors="raise",
+        )
+
+    levels["water_level"] = pd.to_numeric(
+        levels["water_level"],
+        errors="raise",
     )
 
-    # Sanity diagnostic: the relationship we KNOW is in the data. Wetness sets
-    # the ambient head the level recovers toward, so FUTURE LEVEL should track
-    # wetness. (Don't test wetness vs *change* — that's confounded: when the
-    # level is already high in wet periods, the change is ~zero.)
-    corr = float(np.corrcoef(table["wetness"], table["y_2"])[0, 1])
-    print(
-        f"Sanity check — corr(wetness, level 2h out): {corr:+.3f} "
-        f"({'plausible' if corr > 0.15 else 'SUSPICIOUS — investigate before training'})"
+    if levels.isna().any().any():
+        raise ValueError("The readings contain missing values.")
+
+    if not np.isfinite(levels["water_level"]).all():
+        raise ValueError("The readings contains invalid numerical values")
+
+    if (levels["water_level"] < 0).any():
+        raise ValueError("The readings contains negative water levels.")
+
+    if levels["captured_at"].duplicated().any():
+        raise ValueError("Duplicate measurement timestamps were found.")
+
+    if (levels["created_at"] < levels["captured_at"]).any():
+        raise ValueError("Some readings arrived before their capture time.")
+
+    first_hour = levels["captured_at"].min().ceil("h") + pd.Timedelta(hours=6)
+
+    last_hour = levels["captured_at"].max().floor("h") - pd.Timedelta(
+        hours=HORIZON_HOURS
     )
 
-    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-    table.to_csv(OUTPUT_PATH, index=False)
-    print(f"Saved → {OUTPUT_PATH}")
+    if last_hour < first_hour:
+        raise ValueError("Not enough history to build a training example.")
+
+    forecast_times = pd.date_range(
+        first_hour,
+        last_hour,
+        freq="h",
+    )
+
+    examples = []
+
+    for forecast_at in forecast_times:
+        selected_levels = {}
+
+        # Build inputs using only information available at forecast_at.
+        for lag_hours in [0, 1, 3, 6]:
+            anchor = forecast_at - pd.Timedelta(hours=lag_hours)
+
+            candidates = levels.loc[
+                (levels["captured_at"] <= anchor)
+                & (levels["captured_at"] >= anchor - MATCH_TOLERANCE)
+                & (levels["created_at"] <= forecast_at)
+            ]
+
+            if candidates.empty:
+                break
+
+            selected_levels[lag_hours] = float(candidates.iloc[-1]["water_level"])
+
+        # An example needs all four input readings.
+        if len(selected_levels) != 4:
+            continue
+
+        target_at = forecast_at + pd.Timedelta(hours=HORIZON_HOURS)
+
+        # The future observation is the answer, never an input.
+        distances = (levels["captured_at"] - target_at).abs()
+        target_index = distances.idxmin()
+
+        if distances.loc[target_index] > MATCH_TOLERANCE:
+            continue
+
+        target = levels.loc[target_index]
+        level_now = selected_levels[0]
+
+        examples.append(
+            {
+                "forecast_at": forecast_at,
+                "level_now": level_now,
+                "delta_1h": level_now - selected_levels[1],
+                "delta_3h": level_now - selected_levels[3],
+                "delta_6h": level_now - selected_levels[6],
+                "target_at": target_at,
+                "target_captured_at": target["captured_at"],
+                "target_arrived_at": target["created_at"],
+                "level_2h": float(target["water_level"]),
+            }
+        )
+
+    if not examples:
+        raise ValueError(
+            "No complete examples were found. "
+            "Check the measurement coverage and gaps."
+        )
+
+    table = pd.DataFrame(examples)
+
+    # Preserve the complete time-grid boundaries for chronological splitting.
+    table.attrs["first_forecast_at"] = first_hour
+    table.attrs["last_forecast_at"] = last_hour
+
+    print(f"Hourly opportunities: {len(forecast_times)}")
+    print(f"Complete examples:   {len(table)}")
+    print(f"Skipped for gaps:    {len(forecast_times) - len(table)}")
+
+    return table
+
+
+async def main() -> None:
+    # Refuse to overwrite an earlier training snapshot.
+    if OUTPUT_PATH.exists():
+        raise FileExistsError(
+            f"{OUTPUT_PATH} already exists. "
+            "Choose a new OUTPUT_PATH to create another snapshot."
+        )
+
+    levels = await fetch_levels()
+    print(f"Loaded {len(levels)} water-level readings.")
+
+    table = build_training_table(levels)
+
+    # Repeated metadata columns survive saving/loading the CSV.
+    # These are NOT model inputs.
+    table["grid_start"] = table.attrs["first_forecast_at"]
+    table["grid_end"] = table.attrs["last_forecast_at"]
+
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    with OUTPUT_PATH.open("x") as file:
+        table.to_csv(file, index=False)
+
+    print(f"Saved training table to {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":
