@@ -11,6 +11,7 @@ import pandas as pd
 FEATURES = ['delta_1h', 'delta_3h', 'delta_6h']
 TOLERANCE = pd.Timedelta(minutes=35)
 HORIZON_HOURS = 2
+FORECAST_INTERVAL_MINUTES = 30
 
 
 class InsufficientData(ValueError):
@@ -137,9 +138,20 @@ class LevelModel:
         return predicted_level
 
 
+def forecast_cutoff(now):
+    """Use the start of the current half-hour as the information cutoff."""
+    return now.replace(minute=(now.minute // FORECAST_INTERVAL_MINUTES) * FORECAST_INTERVAL_MINUTES,
+                       second=0, microsecond=0)
+
+
 def expected_issue_time(now):
-    """Hourly job runs at :05 UTC; allow it five minutes before marking overdue."""
-    return (pd.Timestamp(now)-pd.Timedelta(minutes=10)).floor('h').to_pydatetime()
+    """Jobs run at :05/:35; allow five more minutes before marking overdue."""
+    return forecast_cutoff(now - timedelta(minutes=10))
+
+
+def next_forecast_review(now):
+    """Next :10/:40, after the scheduled forecast and its grace period."""
+    return expected_issue_time(now) + timedelta(minutes=FORECAST_INTERVAL_MINUTES + 10)
 
 
 def forecast_state(now, issued_at, predicted_for, latest_capture):

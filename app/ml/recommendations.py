@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.ml.schemas import PredictionStatus
+from app.ml.level_forecast import next_forecast_review
 
 
 class RecommendationPolicy(BaseModel):
@@ -51,9 +52,7 @@ def assess_recommendation(
     now: datetime,
 ) -> PumpRecommendation:
     """Assess fresh data only; never extrapolate a recovery time from one forecast."""
-    next_review = now.replace(minute=10, second=0, microsecond=0)
-    if next_review <= now:
-        next_review += timedelta(hours=1)
+    next_review = next_forecast_review(now)
     result = PumpRecommendation(
         status="unavailable", reason_code="configuration_required",
         reason="Operating thresholds and their basis must be configured for this well and sensor.",

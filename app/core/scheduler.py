@@ -15,7 +15,7 @@ def start_scheduler():
     scheduler.add_job(
         run_inference_job,
         trigger="cron",
-        minute=5,
+        minute="5,35",
         id="run_inference",
         replace_existing=True,
     )

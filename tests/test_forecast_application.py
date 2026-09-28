@@ -13,7 +13,7 @@ from unittest.mock import patch,AsyncMock
 from types import SimpleNamespace
 import numpy as np
 import pandas as pd
-from app.ml.level_forecast import LevelModel,compute_level_features,InsufficientData,forecast_state
+from app.ml.level_forecast import LevelModel,compute_level_features,InsufficientData,forecast_state,expected_issue_time
 from app.ml import services,tasks
 from scripts.explain_level_results import read_times
 
@@ -95,6 +95,30 @@ class ForecastTests(unittest.TestCase):
         self.assertEqual(forecast_state(NOW,NOW.replace(minute=0),NOW+timedelta(hours=1),NOW-timedelta(minutes=36)),'stale')
         self.assertEqual(forecast_state(NOW,None,None,NOW),'unavailable')
 
+    def test_half_hour_freshness_grace_and_rollover(self):
+        for moment, expected in [
+            (NOW.replace(minute=39, second=59), NOW.replace(minute=0)),
+            (NOW.replace(minute=40), NOW.replace(minute=30)),
+            (NOW.replace(hour=0, minute=5), NOW.replace(hour=23, minute=30)-timedelta(days=1)),
+        ]:
+            with self.subTest(moment=moment):
+                self.assertEqual(expected_issue_time(moment), expected)
+        self.assertEqual(forecast_state(NOW.replace(minute=40), NOW.replace(minute=0),
+                                       NOW+timedelta(hours=2), NOW.replace(minute=39)), 'stale')
+
+    def test_scheduler_runs_at_five_and_thirty_five(self):
+        from app.core import scheduler as module
+        from apscheduler.triggers.cron import CronTrigger
+        with patch.object(module, 'scheduler') as scheduler:
+            module.start_scheduler()
+        call = next(c for c in scheduler.add_job.call_args_list if c.kwargs['id'] == 'run_inference')
+        trigger = CronTrigger(minute=call.kwargs['minute'], timezone=timezone.utc)
+        start = NOW.replace(minute=0)
+        first = trigger.get_next_fire_time(None, start)
+        second = trigger.get_next_fire_time(first, first+timedelta(seconds=1))
+        self.assertEqual(first, start+timedelta(minutes=5))
+        self.assertEqual(second, start+timedelta(minutes=35))
+
 
 class ForecastServiceTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):services.load_model()
@@ -121,9 +145,9 @@ class ForecastServiceTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(services,'datetime') as clock:
             clock.now.return_value=NOW
             result=await services.get_prediction_chart(2,8,session)
-        self.assertEqual(len(result),3)
+        self.assertEqual(len(result),5)
         self.assertIsNone(result[1]['predicted'])
-        self.assertIsNone(result[2]['actual'])
+        self.assertIsNone(result[4]['actual'])
         self.assertTrue(all(p['confidence'] is None for p in result))
         self.assertIn('prediction.model_version',str(session.statements[1]))
     async def test_job_reads_correct_sensor_and_writes_version_once(self):
@@ -141,6 +165,32 @@ class ForecastServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(values['confidence_score'])
         self.assertIn('ON CONFLICT',str(session.statements[1]))
         session.commit.assert_awaited_once()
+    async def test_half_hour_job_keeps_two_hour_horizon(self):
+        generated = NOW.replace(minute=35)
+        issue = generated.replace(minute=30)
+        session = Session(list(readings(issue).itertuples(index=False, name=None)))
+        with patch.object(tasks, 'async_session_maker', return_value=session), patch.object(tasks, 'datetime') as clock:
+            clock.now.return_value = generated
+            await tasks.run_inference_job()
+        values = session.statements[1].compile().params
+        self.assertEqual(values['created_at'], issue)
+        self.assertEqual(values['predicted_for'], issue + timedelta(hours=2))
+        self.assertEqual(values['generated_at'], generated)
+        self.assertEqual(values['input_level_captured_at'], issue)
+        self.assertIn(issue, session.statements[0].compile().params.values())
+
+    async def test_chart_retains_half_hour_forecasts(self):
+        meta = services.get_model().metadata
+        start = NOW.replace(hour=11, minute=0)
+        targets = [start + timedelta(minutes=m) for m in (0, 30, 60)]
+        rows = [SimpleNamespace(predicted_for=t, created_at=t-timedelta(hours=2),
+                                predicted_level_2h=4.8, model_version=meta['model_version']) for t in targets]
+        with patch.object(services, 'datetime') as clock:
+            clock.now.return_value = NOW
+            result = await services.get_prediction_chart(2, 8, Session([object()], rows, []))
+        self.assertEqual([p['t'] for p in result], targets)
+        self.assertTrue(all(p['predicted'] == 4.8 for p in result))
+
     async def test_missing_history_never_writes_prediction(self):
         session=Session([])
         with patch.object(tasks,'async_session_maker',return_value=session):await tasks.run_inference_job()

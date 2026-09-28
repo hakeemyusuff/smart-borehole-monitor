@@ -14,6 +14,7 @@ from app.ml.level_forecast import (
     LevelModel,
     FEATURES,
     TOLERANCE,
+    FORECAST_INTERVAL_MINUTES,
     compute_level_features,
     forecast_state,
 )
@@ -212,7 +213,7 @@ async def get_prediction_chart(
         actuals["captured_at"] = pd.to_datetime(actuals.captured_at, utc=True)
     by_time = {pd.Timestamp(r.predicted_for): r for r in rows}
     out = []
-    for target in pd.date_range(min(by_time), max(by_time), freq="h"):
+    for target in pd.date_range(min(by_time), max(by_time), freq=f"{FORECAST_INTERVAL_MINUTES}min"):
         row = by_time.get(target)
         actual = None
         if row and target <= now and not actuals.empty:

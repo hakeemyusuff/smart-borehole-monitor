@@ -72,7 +72,7 @@ class RecommendationTests(unittest.TestCase):
 
     def test_reassessment_is_after_next_forecast_grace_period(self):
         result = assess_recommendation(snapshot(current_level=1.5), POLICY, NOW)
-        self.assertEqual(result.next_review_at, NOW.replace(hour=11, minute=10))
+        self.assertEqual(result.next_review_at, NOW.replace(minute=40))
         self.assertIsNone(result.suggested_start_at)
 
     def test_policy_rejects_invalid_levels(self):
@@ -80,6 +80,33 @@ class RecommendationTests(unittest.TestCase):
                        dict(consideration_level_m=float('nan')), dict(basis=' '*12)]:
             with self.subTest(fields=fields), self.assertRaises(ValidationError):
                 RecommendationPolicy(**(POLICY.model_dump() | fields))
+
+    def test_review_rolls_to_next_hour_after_half_hour_grace(self):
+        moment = NOW.replace(minute=40)
+        result = assess_recommendation(snapshot(current_level=1.5, checked_at=moment,
+            current_level_captured_at=moment), POLICY, moment)
+        self.assertEqual(result.next_review_at, moment.replace(hour=11, minute=10))
+
+    def test_site_policy_defaults_and_explicit_overrides(self):
+        from app.core.config import Settings
+        with patch.dict(os.environ, {}, clear=True):
+            for overrides in ({}, {'pump_recommendation_policies': {}}):
+                settings = Settings(_env_file=None, database_url='offline', secret_key='offline', **overrides)
+                self.assertEqual(set(settings.pump_recommendation_policies), {2})
+                policy = settings.pump_recommendation_policies[2]
+                self.assertEqual(policy.sensor_id, 4)
+                self.assertEqual(policy.minimum_level_m, .5)
+                self.assertEqual(policy.consideration_level_m, 1)
+                self.assertTrue(policy.basis)
+            settings = Settings(_env_file=None, database_url='offline', secret_key='offline',
+                                pump_recommendation_policies={2: None})
+            self.assertIsNone(settings.pump_recommendation_policies[2])
+            settings = Settings(_env_file=None, database_url='offline', secret_key='offline',
+                                pump_recommendation_policies={2: POLICY})
+            self.assertEqual(settings.pump_recommendation_policies[2], POLICY)
+            with patch.dict(os.environ, {'PUMP_RECOMMENDATION_POLICIES': '{}'}):
+                settings = Settings(_env_file=None, database_url='offline', secret_key='offline')
+                self.assertEqual(settings.pump_recommendation_policies[2].minimum_level_m, .5)
 
 
 class RecommendationApiTests(unittest.TestCase):

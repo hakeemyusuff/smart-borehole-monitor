@@ -1,4 +1,4 @@
-"""Read recent water levels and save the hourly two-hour forecast."""
+"""Read recent water levels and save the half-hourly two-hour forecast."""
 
 import logging
 from datetime import datetime, timezone, timedelta
@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlmodel import select
 
 from app.core.database import async_session_maker
-from app.ml.level_forecast import InsufficientData
+from app.ml.level_forecast import InsufficientData, forecast_cutoff
 from app.ml.services import get_model, run_inference
 from app.ml.models import Prediction
 from app.sensor.models import WaterLevelReading
@@ -27,12 +27,7 @@ async def run_inference_job():
 
     generated_at = datetime.now(timezone.utc)
 
-    # Use the start of this hour as the measurement cutoff.
-    forecast_at = generated_at.replace(
-        minute=0,
-        second=0,
-        microsecond=0,
-    )
+    forecast_at = forecast_cutoff(generated_at)
 
     predicted_for = forecast_at + timedelta(hours=HORIZON_HOURS)
 

@@ -4,6 +4,14 @@ from pydantic import Field, field_validator
 from app.ml.recommendations import RecommendationPolicy
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+def site_pump_policies():
+    """Agreed prototype thresholds for this installation only."""
+    return {2: RecommendationPolicy(
+        sensor_id=4, minimum_level_m=0.5, consideration_level_m=1.0,
+        basis="Operator-selected minimum of 0.5 m above the fixed sensor, with a 0.5 m consideration margin. Advisory prototype thresholds, not a validated safe yield or pumping duration.",
+    )}
+
+
 class Settings(BaseSettings):
     database_url: str
     debug: bool = False
@@ -12,7 +20,14 @@ class Settings(BaseSettings):
     enable_scheduler: bool = True
     level_model_path: str = "models/level_change_linear.json"
 
-    pump_recommendation_policies: dict[int, RecommendationPolicy] = Field(default_factory=dict)
+    pump_recommendation_policies: dict[int, RecommendationPolicy | None] = Field(default_factory=site_pump_policies)
+
+    @field_validator("pump_recommendation_policies")
+    @classmethod
+    def _site_policy_with_overrides(cls, policies):
+        # An empty deployment mapping retains the agreed site policy.
+        # Explicit {"2": null} disables advice for this well.
+        return {**site_pump_policies(), **policies}
 
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
 
