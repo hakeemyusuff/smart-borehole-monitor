@@ -1,0 +1,33 @@
+{
+  "schema_version": 2,
+  "model_type": "linear_regression",
+  "prediction_type": "level_change",
+  "features": [
+    "delta_1h",
+    "delta_3h",
+    "delta_6h"
+  ],
+  "feature_contract": "captured_before_anchor_arrived_by_issue_v1",
+  "horizon_hours": 2,
+  "tolerance_minutes": 35,
+  "borehole_id": 2,
+  "sensor_id": 4,
+  "coefficients": [
+    -0.23129261709936563,
+    -0.23293529243633543,
+    -0.1752903983308206
+  ],
+  "intercept": 0.0022442536911753625,
+  "training_rows": 345,
+  "training_cutoff_utc": "2026-09-17 11:00:00+00:00",
+  "training_table_sha256": "86008d4058dbe445f8c47071f1200ce5af34a38064869e48b46e454f4667bb99",
+  "evaluation_rows": 115,
+  "evaluation_status": "exploratory_after_inspecting_evaluation_errors",
+  "evaluation_metrics": {
+    "mae_m": 0.037701924321081014,
+    "rmse_m": 0.07145415293376384,
+    "persistence_mae_m": 0.03947826086956518,
+    "persistence_rmse_m": 0.09189786391045417
+  },
+  "model_version": "level-change-linear-918f8ee4385e7e14"
+}

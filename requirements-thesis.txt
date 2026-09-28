@@ -1,0 +1,3 @@
+# Optional plotting dependency for the offline thesis evidence runner.
+# Scientific/model dependencies come from the project's existing environment.
+matplotlib==3.10.6

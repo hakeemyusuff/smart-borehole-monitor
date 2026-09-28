@@ -1,228 +1,251 @@
 from __future__ import annotations
 
-import json
+from dataclasses import dataclass
+from datetime import datetime, timezone, timedelta
 import logging
 from pathlib import Path
-from typing import Optional
-from datetime import datetime, timezone, timedelta
-from dataclasses import dataclass
+
+import pandas as pd
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-import joblib
-import numpy as np
-import pandas as pd
-
-from app.ml.features import FEATURE_ORDER, compute_feature_row, LEVEL_MATCH_TOLERANCE
+from app.core.config import settings
+from app.ml.level_forecast import (
+    LevelModel,
+    FEATURES,
+    TOLERANCE,
+    compute_level_features,
+    forecast_state,
+)
 from app.ml.models import Prediction
 from app.sensor.models import WaterLevelReading
 from app.borehole.models import Borehole
 from app.location.models import Location
 
 logger = logging.getLogger(__name__)
-
-# Module-level singletons, populated once at startup by load_model()
-# The inference job and any route handler import these directly.
-
 _model = None
-_feature_columns: Optional[list[str]] = None
-
-MODEL_PATH = Path("models/rf_level.joblib")
-FEATURE_COLUMNS_PATH = Path("models/feature_columns.json")
 
 
-def load_model() -> None:
-    """Load the trained model and and its feature-column order into module globals.
-    Called once at startup. On any failure, leaves globals as None and logs
-    """
-
-    global _model, _feature_columns
-
-    if not MODEL_PATH.exists():
-        logger.warning(
-            f"No model at {MODEL_PATH} - inference disabled until one is trained."
-        )
-        return
-
-    if not FEATURE_COLUMNS_PATH.exists():
-        logger.warning(
-            f"Model present but {FEATURE_COLUMNS_PATH} - inference disabled "
-            "(cannot verify feature order).",
-        )
-
+def load_model():
+    """Fail closed, including on reload; never fall back to the old forest artifact."""
+    global _model
+    _model = None
     try:
-        model = joblib.load(MODEL_PATH)
-        with open(FEATURE_COLUMNS_PATH) as f:
-            columns = json.load(f)
+        path = Path(settings.level_model_path)
+        if not path.is_absolute():
+            path = Path(__file__).resolve().parents[2] / path
+        _model = LevelModel.load(path)
+        logger.info("Loaded %s", _model.metadata["model_version"])
     except Exception:
-        logger.exception(
-            "Failed to load model or feature columns - inference disabled."
-        )
-        return
-
-    # checks to see if the model column fit the features column
-    if columns != FEATURE_ORDER:
-        logger.error(
-            "Feature-column mismatch - model disabled. "
-            f"On disk: {columns}. Expected: {FEATURE_ORDER}"
-        )
-        return
-    
-    _model = model
-    _feature_columns = columns
-    logger.info(
-        f"Model loaded from {MODEL_PATH} ({len(columns)} features)."
-    )
+        logger.exception("Level model unavailable; inference disabled")
 
 
 def get_model():
-    """Return the loaded model or None if unavailable"""
     return _model
 
-def get_features_columns() -> Optional[list[str]]:
-    """Return the feature-column order the model was fit on, or None."""
-    return _feature_columns
+
+def get_features_columns():
+    return FEATURES.copy() if _model else None
 
 
 @dataclass
 class InferenceResult:
     predicted_at: datetime
-    predicted_level_2h: list[float]
-    confidence: float
+    predicted_level_2h: float
+    model_version: str
+    input_level_captured_at: datetime
+    confidence: None = None
 
 
-def _reindex_features(feature_row: dict[str, float], columns: list[str]) -> np.ndarray:
-    """Turn the feature dict into a (1, n) array in the model's column order.
-    Raises KeyError if a column the model expects isn't produced — a loud
-    failure is correct here, never silently fill a missing feature."""
+def run_inference(levels, flows=None, weather=None, now=None):
+    """Calculate a two-hour water-level forecast without writing to the database."""
 
-    values = [feature_row[col] for col in columns]
-    return np.array([values], dtype=float)
+    if _model is None:
+        raise RuntimeError("No level model loaded")
 
+    if now is None:
+        raise ValueError("A forecast cutoff time is required")
 
-def _confidence_from_trees(model, X: np.ndarray) -> float:
-    """Turn the feature dict into a (1, n) array in the model's column order.
-    Raises KeyError if a column the model expects isn't produced — a loud
-    failure is correct here, never silently fill a missing feature."""
+    forecast_at = pd.Timestamp(now)
 
-    per_tree = np.array([est.predict(X)[0] for est in model.estimators_])
-    std = float(per_tree.std())
-    return 1.0/ (1.0 + std)
-
-
-def run_inference(
-    levels: pd.DataFrame,
-    flows: pd.DataFrame,
-    weather: pd.DataFrame,
-    now: pd.Timestamp,
-) -> InferenceResult:
-    """Compute a 24h prediction for `now`. Pure compute — no DB writes.
-    Raises InsufficientData (propagated from compute_feature_row) or
-    RuntimeError if no model is loaded."""
-
-    model = get_model()
-    columns = get_features_columns()
-    if model is None or columns is None:
-        raise RuntimeError("no model loaded")
-    
-    feature_row = compute_feature_row(levels, flows, weather, now)
-    X = _reindex_features(feature_row, columns)
-    
-    predicted_2h = float(model.predict(X)[0])
-    confidence = _confidence_from_trees(model, X)
-    
-    return InferenceResult(
-        predicted_at=now.to_pydatetime(),
-        predicted_level_2h=predicted_2h,
-        confidence=confidence,
+    features, captured_at = compute_level_features(
+        levels,
+        forecast_at,
     )
+
+    predicted_level = _model.predict(features)
+
+    return InferenceResult(
+        predicted_at=forecast_at.to_pydatetime(),
+        predicted_level_2h=predicted_level,
+        model_version=_model.metadata["model_version"],
+        input_level_captured_at=captured_at,
+    )
+
+
+async def require_owner(borehole_id, user_id, session):
+    owned = (
+        await session.exec(
+            select(Borehole)
+            .join(Location, Borehole.location_id == Location.id)
+            .where(Borehole.id == borehole_id, Location.user_id == user_id)
+        )
+    ).first()
+    if owned is None:
+        raise ValueError("Borehole not found for this user")
+
+
+async def get_prediction_status(borehole_id, user_id, session):
+    await require_owner(borehole_id, user_id, session)
+    now = datetime.now(timezone.utc)
+    response = dict(
+        status="unavailable",
+        message="Forecast model is unavailable.",
+        checked_at=now,
+        predicted_level_2h=None,
+        issued_at=None,
+        predicted_for=None,
+        model_version=None,
+        current_level=None,
+        current_level_captured_at=None,
+    )
+    if _model is None:
+        return response
+    meta = _model.metadata
+    if borehole_id != meta["borehole_id"]:
+        response["message"] = "No forecasting model is configured for this well."
+        return response
+    latest = (
+        await session.exec(
+            select(WaterLevelReading)
+            .where(
+                WaterLevelReading.borehole_id == borehole_id,
+                WaterLevelReading.sensor_id == meta["sensor_id"],
+                WaterLevelReading.captured_at <= now,
+                WaterLevelReading.created_at <= now,
+            )
+            .order_by(WaterLevelReading.captured_at.desc())
+            .limit(1)
+        )
+    ).first()
+    pred = (
+        await session.exec(
+            select(Prediction)
+            .where(
+                Prediction.borehole_id == borehole_id,
+                Prediction.model_version == meta["model_version"],
+                Prediction.created_at <= now,
+            )
+            .order_by(Prediction.created_at.desc())
+            .limit(1)
+        )
+    ).first()
+    captured = latest.captured_at if latest else None
+    if latest:
+        response.update(
+            current_level=latest.water_level, current_level_captured_at=captured
+        )
+    state = forecast_state(
+        now,
+        pred.created_at if pred else None,
+        pred.predicted_for if pred else None,
+        captured,
+    )
+    response.update(
+        status=state,
+        model_version=meta["model_version"],
+        message={
+            "fresh": "Two-hour water-level forecast.",
+            "stale": "Forecast is out of date. Waiting for a new forecast and recent readings.",
+            "unavailable": "No forecast is available yet. Recent readings at the current, 1-, 3- and 6-hour anchors are required.",
+        }[state],
+    )
+    if pred:
+        response.update(
+            issued_at=getattr(pred, "generated_at", None) or pred.created_at,
+            predicted_for=pred.predicted_for,
+        )
+        # Historical values remain on the chart, never masquerading as a fresh card.
+        if state == "fresh":
+            response["predicted_level_2h"] = pred.predicted_level_2h
+    return response
 
 
 async def get_prediction_chart(
-    borehole_id: int,
-    user_id: int, 
-    session: AsyncSession,
-    lookback: timedelta = timedelta(days=1)
-) -> list[dict]:
-    """Return predicted-vs-actual pairs for the chart. Each item:
-      { t, predicted, actual }
-    where `t` is the predicted-for time, `predicted` is the frozen model
-    output, and `actual` is the real reading nearest that time (null when the
-    target time is still in the future, or no reading landed within tolerance).
-    Predictions whose target is still ahead show predicted with actual=null —
-    that's the 'where it's heading' segment."""
-
-    # Ownership check
-    result = await session.exec(
-        select(Borehole)
-        .join(Location, Borehole.location_id == Location.id) # type: ignore
-        .where(Borehole.id == borehole_id, Location.user_id == user_id)
-    )
-
-    if result.first() is None:
-        raise ValueError("Borehole not found for this user")
-
+    borehole_id: int, user_id: int, session: AsyncSession, lookback=timedelta(days=1)
+):
+    await require_owner(borehole_id, user_id, session)
+    if _model is None or borehole_id != _model.metadata["borehole_id"]:
+        return []
     now = datetime.now(timezone.utc)
     since = now - lookback
-
-    # Prediction whose target falls in the window, oldest first
-    pred_rows = (
+    rows = (
         await session.exec(
-            select(Prediction.predicted_for, Prediction.predicted_level_2h, Prediction.confidence_score,)
-            .where(Prediction.borehole_id == borehole_id)
-            .where(Prediction.predicted_for >= since)
+            select(Prediction)
+            .where(
+                Prediction.borehole_id == borehole_id,
+                Prediction.model_version == _model.metadata["model_version"],
+                Prediction.predicted_for >= since,
+                Prediction.created_at <= now,
+                Prediction.predicted_for <= now + timedelta(hours=2),
+            )
             .order_by(Prediction.predicted_for)
         )
     ).all()
-
-    if not pred_rows:
+    if not rows:
         return []
-
-    # Actual readings across the same window (+ a little margin so the nearest
-    # match near the window edges has candidates on both sides).
-    level_rows = (
+    levels = (
         await session.exec(
             select(WaterLevelReading.captured_at, WaterLevelReading.water_level)
-            .where(WaterLevelReading.borehole_id == borehole_id)
-            .where(WaterLevelReading.captured_at >= since - timedelta(hours=1))
+            .where(
+                WaterLevelReading.borehole_id == borehole_id,
+                WaterLevelReading.sensor_id == _model.metadata["sensor_id"],
+                WaterLevelReading.captured_at >= since - timedelta(minutes=35),
+                WaterLevelReading.captured_at <= now,
+                WaterLevelReading.created_at <= now,
+            )
             .order_by(WaterLevelReading.captured_at)
         )
     ).all()
-
-    preds = pd.DataFrame(
-        pred_rows, columns=["predicted_for", "predicted", "confidence"]
-    )
-
-    preds["predicted_for"] = pd.to_datetime(preds["predicted_for"], utc = True)
-
-    if level_rows:
-        actuals = pd.DataFrame(level_rows, columns=["captured_at", "actual"])
-        actuals["captured_at"] = pd.to_datetime(actuals["captured_at"], utc=True)
-        # Nearest actual reading to each predicted_for, within the SAME
-        # tolerance the model uses to define level_now — apples to apples.
-        merged = pd.merge_asof(
-            preds.sort_values("predicted_for"),
-            actuals.sort_values("captured_at"),
-            left_on="predicted_for",
-            right_on="captured_at",
-            direction="nearest",
-            tolerance=LEVEL_MATCH_TOLERANCE,
-        )
-    else:
-        merged = preds.copy()
-        merged["actual"] = np.nan
-        
-    
+    actuals = pd.DataFrame(levels, columns=["captured_at", "value"])
+    if not actuals.empty:
+        actuals["captured_at"] = pd.to_datetime(actuals.captured_at, utc=True)
+    by_time = {pd.Timestamp(r.predicted_for): r for r in rows}
     out = []
-    for _, r in merged.iterrows():
-        actual = r.get("actual")
+    for target in pd.date_range(min(by_time), max(by_time), freq="h"):
+        row = by_time.get(target)
+        actual = None
+        if row and target <= now and not actuals.empty:
+            distances = (actuals.captured_at - target).abs()
+            i = distances.idxmin()
+            if distances.loc[i] <= TOLERANCE:
+                actual = float(actuals.loc[i, "value"])
         out.append(
-            {
-                "t": r["predicted_for"].to_pydatetime(),
-                "predicted": float(r["predicted"]),
-                "actual": None if pd.isna(actual) else float(actual),
-                "confidence": float(r["confidence"]),
-            }
+            dict(
+                t=target.to_pydatetime(),
+                predicted=row.predicted_level_2h if row else None,
+                actual=actual,
+                confidence=None,
+                issued_at=(
+                    (getattr(row, "generated_at", None) or row.created_at)
+                    if row
+                    else None
+                ),
+                model_version=row.model_version if row else None,
+            )
         )
-        
     return out
+
+
+async def get_pump_recommendation(borehole_id, user_id, session):
+    from app.ml.recommendations import assess_recommendation
+    from app.ml.schemas import PredictionStatus
+
+    # Reuse ownership, model scoping and freshness checks from forecast status.
+    snapshot = PredictionStatus(**await get_prediction_status(borehole_id, user_id, session))
+    policy = settings.pump_recommendation_policies.get(borehole_id)
+    model = get_model()
+    if policy and (model is None or model.metadata["borehole_id"] != borehole_id
+                   or model.metadata["sensor_id"] != policy.sensor_id):
+        policy = None
+    return assess_recommendation(snapshot, policy, datetime.now(timezone.utc))

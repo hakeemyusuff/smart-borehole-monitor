@@ -23,10 +23,9 @@ TRAIN_FRACTION = 0.8
 def main() -> None:
     if MODEL_PATH.exists():
         raise FileExistsError(
-            f"{MODEL_PATH} already exists. "
-            "The saved model has been preserved."
+            f"{MODEL_PATH} already exists. " "The saved model has been preserved."
         )
-    
+
     table = pd.read_csv(INPUT_PATH)
 
     timestamp_columns = [
@@ -105,16 +104,12 @@ def main() -> None:
     predicted_change = model.predict(X_test)
 
     # Convert the predicted change back into a water-level prediction.
-    predictions = (
-        test["level_now"].to_numpy() + predicted_change
-    )
+    predictions = test["level_now"].to_numpy() + predicted_change
 
     # Persistence predicts that the future level equals the current level.
     persistence = test["level_now"].to_numpy()
 
-    comparison = test[
-    ["forecast_at", "level_now", "level_2h"]
-    ].copy()
+    comparison = test[["forecast_at", "level_now", "level_2h"]].copy()
 
     comparison["linear_prediction"] = predictions
     comparison["persistence_prediction"] = persistence
@@ -135,11 +130,7 @@ def main() -> None:
         )
     )
     print("\nAverage signed error in centimetres:")
-    print(
-        comparison[
-            ["linear_error_cm", "persistence_error_cm"]
-        ].mean().round(3)
-    )
+    print(comparison[["linear_error_cm", "persistence_error_cm"]].mean().round(3))
 
     model_mae = mean_absolute_error(y_test, predictions)
     model_rmse = np.sqrt(mean_squared_error(y_test, predictions))
@@ -172,8 +163,7 @@ def main() -> None:
     for feature, coefficient in zip(FEATURES, model.coef_):
         print(f"{feature}: {coefficient:+.6f}")
 
-
-        saved_model = {
+    saved_model = {
         "schema_version": 2,
         "model_type": "linear_regression",
         "prediction_type": "level_change",
@@ -187,9 +177,7 @@ def main() -> None:
         "intercept": float(model.intercept_),
         "training_rows": len(train),
         "training_cutoff_utc": str(split_time),
-        "training_table_sha256": hashlib.sha256(
-            INPUT_PATH.read_bytes()
-        ).hexdigest(),
+        "training_table_sha256": hashlib.sha256(INPUT_PATH.read_bytes()).hexdigest(),
         "evaluation_rows": len(test),
         "evaluation_status": "exploratory_after_inspecting_evaluation_errors",
         "evaluation_metrics": {
@@ -207,8 +195,7 @@ def main() -> None:
     ).encode()
 
     saved_model["model_version"] = (
-        "level-change-linear-"
-        + hashlib.sha256(model_contents).hexdigest()[:16]
+        "level-change-linear-" + hashlib.sha256(model_contents).hexdigest()[:16]
     )
 
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -220,7 +207,7 @@ def main() -> None:
     print(f"\nSaved model to {MODEL_PATH}")
     print("This model predicts a change in metres.")
     print("Future level = current level + predicted change.")
-    
-    
+
+
 if __name__ == "__main__":
     main()

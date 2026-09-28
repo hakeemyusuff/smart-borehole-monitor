@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
+from app.ml.recommendations import RecommendationPolicy
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -9,6 +10,9 @@ class Settings(BaseSettings):
     secret_key: str
     allowed_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
     enable_scheduler: bool = True
+    level_model_path: str = "models/level_change_linear.json"
+
+    pump_recommendation_policies: dict[int, RecommendationPolicy] = Field(default_factory=dict)
 
     model_config = SettingsConfigDict(env_file=".env", extra="allow")
 

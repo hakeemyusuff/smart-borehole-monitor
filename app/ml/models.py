@@ -18,7 +18,10 @@ class Prediction(SQLModel, table=True):
     borehole_id: Optional[int] = Field(default=None, foreign_key="borehole.id")
     predicted_recovery_at: Optional[datetime] = optional_timestamp_field()
     predicted_level_2h: float
-    confidence_score: float
+    confidence_score: Optional[float] = Field(default=None)
+    model_version: Optional[str] = Field(default=None, max_length=80)
+    input_level_captured_at: Optional[datetime] = optional_timestamp_field()
+    generated_at: Optional[datetime] = optional_timestamp_field()
     horizon_hours: int = Field(default=2)
     predicted_for: datetime = optional_timestamp_field()
     created_at: datetime = timestamp_field()

@@ -1,35 +1,35 @@
-from __future__ import annotations
+"""Offline smoke test of the shipped artifact; never connects to the database."""
 
-import asyncio
-
+import json
+from pathlib import Path
 import pandas as pd
-
-from app.ml.services import load_model, run_inference, get_model
-from scripts.build_training_table import fetch_frames
+from app.ml.level_forecast import LevelModel, compute_level_features
 
 
-async def main() -> None:
-    load_model()
-    if get_model() is None:
-        print("No model loaded — aborting.")
-        return
+def main():
+    model = LevelModel.load(Path("models/level_change_linear.json"))
+    levels = pd.read_csv("/mnt/c/Users/Ysf/Downloads/water_level_reading.csv")
+    meta = model.metadata
+    levels = levels.loc[
+        (levels.borehole_id == meta["borehole_id"])
+        & (levels.sensor_id == meta["sensor_id"])
+    ]
+    example = pd.read_csv("analysis/level_only_2026-09-22/examples.csv").iloc[-1]
+    now = pd.Timestamp(example.forecast_at)
+    features, captured = compute_level_features(levels, now)
+    print(
+        json.dumps(
+            dict(
+                model_version=meta["model_version"],
+                issued_at=str(now),
+                predicted_for=str(now + pd.Timedelta(hours=2)),
+                predicted_level_2h=model.predict(features),
+                input_captured_at=str(captured),
+            ),
+            indent=2,
+        )
+    )
 
-    levels, flows, weather = await fetch_frames()
-
-    # Pick a `now` well inside the seeded range: 24h before the last level
-    # reading, floored to the hour (so a full predicted_level_2h of "future" exists to eyeball).
-    last = levels["created_at"].max()
-    now = (last - pd.Timedelta(hours=2)).floor("h")
-    print(f"Running inference for now = {now}")
-
-    result = run_inference(levels, flows, weather, now)
-
-    print(f"\npredicted_at:      {result.predicted_at}")
-    print(f"confidence:        {result.confidence:.4f}")
-    print(f"predicted_level_2h: {result.predicted_level_2h:.3f}")
-
-    cur = levels.sort_values("created_at").iloc[-3]["water_level"]  # a level near `now`
-    print(f"(for reference, a level near `now`: {cur:.3f})")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
